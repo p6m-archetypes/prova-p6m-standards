@@ -112,6 +112,14 @@ divergent in dotnet (ca-certificates only in prd) — a named target makes drift
 impossible. Until an archetype unifies, the bar is: prd must build and pass from a clean
 render; `local` is unheld (inner-loop only).
 
+### S8b — No host tooling in archetype suites (DECIDED 2026-07-23)
+An archetype's suite may not invoke local toolchains at all — not even capability-gated
+`build_steps`. Docker is the single requirement; a suite must behave identically on a laptop
+and a CI runner. Compile coverage is containerized: the standards SUT builds every persistence
+variant's production image, and the hollow (None) rendering is proven by a docker-gated
+`docker.build` of its production Dockerfile. A rendered project's own unit tests belong to the
+rendered project's CI, not to the archetype's suite.
+
 ### S9 — Suite and CI hygiene
 `prova.toml` uses `[run] proofs = [...]` (prova ≥0.7), plugins pinned to released tags
 (`prova-rs/prova-postgres@v1` etc. — released 2026-07-22), `acceptance.yaml` on
