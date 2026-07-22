@@ -41,17 +41,19 @@ PascalCase (`UserDetails`), snake (`user_details`), kebab `project-name`
 Every transport of a full-flavor archetype exposes the same five operations over the entity
 `{ id, display_name }`, named from the answers:
 
-- **gRPC** — `package {prefix}_{suffix}.v1`; `service {PrefixName}{SuffixName}`;
-  rpcs `Create{PrefixName}`, `Get{PrefixName}`, `List{PrefixName}s`, `Update{PrefixName}`,
-  `Delete{PrefixName}`; server reflection + `grpc.health.v1.Health` = SERVING on the service
-  port. *(DECIDE-1: package versioning `.v1` — golang has it, others don't.)*
-- **REST** — `/api/v1/{prefix-name}s` (kebab, plural): POST(201)/GET list/GET id/PUT/DELETE(204)
-  + 404 semantics. The path derives from the name — no hard-coded `items`.
-  *(DECIDE-2: confirm `/api/v1/` prefix and name-derived path.)*
-- **GraphQL** — type `{PrefixName}`; query `{prefixName}(id)`, `{prefixName}s`;
-  mutation `create/update/delete{PrefixName}`; served at `/graphql` on the service port.
-  *(DECIDE-3: type = PrefixName vs PrefixName+SuffixName; and no get/list prefixes — the two
-  camps today are typescript `getExampleService` vs dotnet `exampleService`.)*
+- **gRPC** — `package {prefix}_{suffix}` (flat, DECIDED 2026-07-22: no `.v1` segment);
+  `service {PrefixName}{SuffixName}`; rpcs `Create{PrefixName}`, `Get{PrefixName}`,
+  `List{PrefixName}s`, `Update{PrefixName}`, `Delete{PrefixName}`; server reflection +
+  `grpc.health.v1.Health` = SERVING on the service port.
+- **REST** — `/api/v1/{prefix-name}s` (kebab, plural — DECIDED: name-derived, versioned
+  prefix; no hard-coded `items`): POST(201) / GET list / GET id / PUT / DELETE(204) + 404
+  semantics.
+- **GraphQL** — type `{PrefixName}` (DECIDED: entity-named, not service-named); query
+  `{prefixName}(id)` and `{prefixName}s` (no `get`/`list` prefixes); mutation
+  `create/update/delete{PrefixName}`; served at `/graphql` on the service port.
+
+Pluralization is a naive appended `s` (what ATL templates can produce): `customers`,
+`userDetailss`. Ugly on some words, but uniform and mechanical — the oracle mirrors it.
 
 CRUD round-trips into the selected persistence (rows verified via SQL), identically across
 languages: the suite drives all three transports with the same semantic script.
