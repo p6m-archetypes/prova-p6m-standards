@@ -29,6 +29,15 @@ Survey highlights, per axis — every one of these is a proof in the suite:
 
 ## 2. The standard
 
+**Principle — idiomatic inside, identical at the boundary.** Every requirement below is stated in
+terms a black-box caller can observe: names on the wire, env vars honored, endpoints answered,
+status semantics, log shape on stdout. That is deliberate: the suite never dictates frameworks,
+internal naming, or config plumbing — each language satisfies the contract the way its ecosystem
+would (Spring relaxed binding, a figment env layer, strawberry's auto-camelCasing, pino vs
+Serilog vs slog). Where idiom and contract tension, the contract wins at the boundary and the
+bridge stays as small and native as the language allows. Compliance is sameness of behavior,
+not sameness of code.
+
 ### S1 — Identity and casing
 One answer set drives every rendering:
 `org_name`, `solution_name`, `prefix_name`, `suffix_name` (default `Service`), ports, resource
