@@ -1,0 +1,6 @@
+.DS_Store
+/.prova
+# Generated LuaLS IDE artifacts — prova writes these when you run the self-test (or `prova init`).
+# The shipped stub lives in library/p6m.lua (committed); these are regenerated, not tracked.
+/annotations/
+/.luarc.json

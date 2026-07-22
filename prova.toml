@@ -1,0 +1,19 @@
+# One manifest, two hats. In Prova a package is one prova.toml-rooted unit; this one both exports a
+# namespace (a plugin — `[plugin]`) and runs its own proofs (a suite). Author the plugin in
+# init.lua; prove it in proofs/; ship both together.
+[plugin]
+name        = "p6m"
+description = "p6m platform standards as executable proofs — one parameterized suite every service archetype must pass"
+license     = "MIT"
+
+# The range of prova versions this plugin is built against; a consumer is checked against it.
+[requires]
+prova = ">=0.3"
+
+# Resolve THIS plugin from its own directory, so the self-tests can `require("p6m")` exactly as
+
+# a consumer would. A CONSUMER instead pins it by source — a released tag:
+#   p6m = { git = "https://github.com/p6m-archetypes/prova-p6m-standards", tag = "v1" }
+
+[plugins]
+p6m = { path = "." }
