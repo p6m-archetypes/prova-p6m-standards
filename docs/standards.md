@@ -85,11 +85,19 @@ when persistence is selected (not a static `ok` before the DB is reachable).
 OTel wired fail-open: exporting iff `OTEL_EXPORTER_OTLP_ENDPOINT` set. Phase-2 proof: an OTLP
 sink container on the topology network receives ≥1 span from a traced request.
 
-### S8 — Container-first
-`.platform/docker/{local,prd}/Dockerfile` builds from a **clean render** and the container runs
-as the SUT for the whole suite — the machine needs Docker and nothing else (no SDKs on the
-host). `.dockerignore` present; non-root user; `EXPOSE {service,management}`. `local` vs `prd`
-either differ meaningfully or converge — no accidental byte-identical pairs.
+### S8 — Container-first, production-image-first
+The **production** Dockerfile builds from a **clean render** and that container is the SUT for
+the whole suite — the machine needs Docker and nothing else (no SDKs on the host), and what is
+proven is the artifact CI publishes and the platform deploys, under the exact env contract it
+will receive. `.dockerignore` present; non-root user; `EXPOSE {service,management}`.
+
+End-state (DECIDED direction 2026-07-22): **one multi-stage Dockerfile** per service —
+`builder → dev → runtime` — replacing the `{local,prd}` pair. The final stage is the default
+build (CI publishes it); Tilt builds `--target dev` for the inner loop. Today the pair is
+byte-identical in java/python/rust, trivially divergent in typescript/golang, and *harmfully*
+divergent in dotnet (ca-certificates only in prd) — a named target makes drift structurally
+impossible. Until an archetype unifies, the bar is: prd must build and pass from a clean
+render; `local` is unheld (inner-loop only).
 
 ### S9 — Suite and CI hygiene
 `prova.toml` uses `[run] proofs = [...]` (prova ≥0.7), plugins pinned to released tags

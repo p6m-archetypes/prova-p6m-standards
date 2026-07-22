@@ -170,9 +170,11 @@ end
 p6m.SERVICE_PORT = 18080
 p6m.MANAGEMENT_PORT = 18081
 
---- Build a rendered service's own `.platform/docker/local/Dockerfile` and boot it as a container
---- on the topology network, wired per the platform env contract. Call INSIDE a `prova.topology`
---- factory (it uses `ctx.network` implicitly via the resource layer).
+--- Build a rendered service's own Dockerfile — the PRODUCTION one by default, because that is
+--- the artifact CI publishes and the platform deploys; proving `local` only proves the dev inner
+--- loop — and boot it as a container on the topology network, wired per the platform env
+--- contract. Call INSIDE a `prova.topology` factory (it uses `ctx.network` implicitly via the
+--- resource layer). `spec.dockerfile` overrides (e.g. ".platform/docker/local/Dockerfile").
 ---
 --- Ordering matters cold: the image is built FIRST, before any resource with a readiness clock is
 --- provisioned — a cold image build can saturate the machine long enough to blow a sibling DB's
@@ -190,7 +192,7 @@ function p6m.sut(ctx, spec)
 
   local image = docker.build{
     context = spec.root,
-    dockerfile = ".platform/docker/local/Dockerfile",
+    dockerfile = spec.dockerfile or ".platform/docker/prd/Dockerfile",
   }
 
   -- Alias the DB uniquely per SUT: concurrent topologies otherwise share the recipe's default
