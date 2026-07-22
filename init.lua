@@ -231,6 +231,34 @@ function p6m.sut(ctx, spec)
   -- Readiness on the MANAGEMENT port (S5) — reachable only if MANAGEMENT_PORT was honored (S3).
   http.wait_for(management_url .. "/health/readiness", { timeout = spec.timeout or "120s" })
 
+  -- S4's other half: the flag must be READ, not merely defined. Boot a sibling from the SAME
+  -- image with LOGGING_STRUCTURED=false and keep its logs — a service that is always-JSON
+  -- regardless of the flag fails the runtime suite's plain-mode assertion. Skippable via
+  -- `check_logging_toggle = false` for callers that only need the primary SUT.
+  local plain_logs
+  if spec.check_logging_toggle ~= false then
+    local plain_env = {}
+    for k, v in pairs(env) do
+      plain_env[k] = v
+    end
+    plain_env.LOGGING_STRUCTURED = "false"
+    local plain = prova.containerized{
+      name = id.project_name .. "-plainlog",
+      image = image,
+      ports = { p6m.SERVICE_PORT, p6m.MANAGEMENT_PORT },
+      env = plain_env,
+      timeout = spec.timeout or "120s",
+      url = function(hp)
+        return "http://127.0.0.1:" .. hp
+      end,
+    }.container(ctx)
+    http.wait_for(
+      "http://127.0.0.1:" .. plain.container:host_port(p6m.MANAGEMENT_PORT) .. "/health/readiness",
+      { timeout = spec.timeout or "120s" }
+    )
+    plain_logs = plain.container:logs()
+  end
+
   local api
   if transport == "rest" then
     api = http.client{ base_url = app.url }
@@ -251,6 +279,7 @@ function p6m.sut(ctx, spec)
     container = app.container,
     service_url = app.url,
     management_url = management_url,
+    plain_logs = plain_logs,
   }
 end
 
@@ -424,6 +453,22 @@ function p6m.standards.runtime(g, sut_fixture)
       if ok and type(v) == "table" then structured = structured + 1 end
     end
     t:expect(structured > 0, "no JSON log lines despite LOGGING_STRUCTURED=true"):is_true()
+  end)
+
+  g:test("the LOGGING_STRUCTURED flag is read, not just defined", function(t)
+    local sut = t:use(sut_fixture)
+    if sut.plain_logs == nil then
+      t:skip("toggle check disabled on this sut (check_logging_toggle = false)")
+    end
+    local non_json = 0
+    for line in sut.plain_logs:gmatch("[^\r\n]+") do
+      local ok, v = pcall(prova.parse.json, line)
+      if not (ok and type(v) == "table") then non_json = non_json + 1 end
+    end
+    t:expect(
+      non_json > 0,
+      "every plain-mode (LOGGING_STRUCTURED=false) line still parsed as JSON — the flag is ignored"
+    ):is_true()
   end)
 end
 

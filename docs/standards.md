@@ -78,7 +78,11 @@ service actually listening there — this catches rust's `APP_SERVER__PORT` and 
 ### S4 — Structured logging
 With `LOGGING_STRUCTURED=true`: stdout is JSON-lines; every record parses; minimum keys
 `timestamp`/`level`/`message` (mapped per ecosystem but present); service identity appears.
-With it unset: human-readable. The flag must be *read* (catches typescript's dead field).
+With it unset/false: human-readable. The flag must be *read*, and the suite proves it from
+both directions: the primary SUT (flag on) must emit JSON lines, and a sibling boot of the
+same image with the flag off must emit at least one non-JSON line (an always-JSON service
+that merely defines the flag fails — the ratchet's first click, added after three independent
+agents flagged the one-sided assertion).
 
 ### S5 — Health
 `GET /health/readiness` and `/health/liveness` on **MANAGEMENT_PORT**, 200 + JSON status.
