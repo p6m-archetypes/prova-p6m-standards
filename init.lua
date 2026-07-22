@@ -193,7 +193,9 @@ function p6m.sut(ctx, spec)
     dockerfile = ".platform/docker/local/Dockerfile",
   }
 
-  local db = spec.db and spec.db.container(ctx) or nil
+  -- Alias the DB uniquely per SUT: concurrent topologies otherwise share the recipe's default
+  -- alias ("postgres"), and DNS on interleaved networks can hand one SUT its sibling's database.
+  local db = spec.db and spec.db.container(ctx, { alias = id.project_name .. "-db" }) or nil
 
   local env = p6m.env_contract(id, transport, {
     [port_key] = tostring(p6m.SERVICE_PORT),
