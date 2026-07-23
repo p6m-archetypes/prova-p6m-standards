@@ -256,7 +256,23 @@ function p6m.sut(ctx, spec)
       "http://127.0.0.1:" .. plain.container:host_port(p6m.MANAGEMENT_PORT) .. "/health/readiness",
       { timeout = spec.timeout or "120s" }
     )
+    -- Async log transports (e.g. pino-pretty's worker thread) can lag readiness: give plain-mode
+    -- output a bounded window to flush a non-JSON line before snapshotting. If none ever appears,
+    -- keep the final snapshot — the runtime suite makes the actual judgment (and fails honestly).
+    local function has_non_json(logs)
+      for line in logs:gmatch("[^\r\n]+") do
+        local ok, v = pcall(prova.parse.json, line)
+        if not (ok and type(v) == "table") then return true end
+      end
+      return false
+    end
     plain_logs = plain.container:logs()
+    if not has_non_json(plain_logs) then
+      pcall(prova.retry, function()
+        plain_logs = plain.container:logs()
+        assert(has_non_json(plain_logs), "no non-JSON plain-mode line flushed yet")
+      end, { timeout = "10s", every = "500ms" })
+    end
   end
 
   local api
