@@ -2,7 +2,7 @@
 --
 -- One parameterized suite every p6m service archetype must pass, so that services rendered from
 -- the same answers are indistinguishable at the API and at runtime, regardless of language. The
--- spec is docs/standards.md (S1–S9); this module is its oracle: every expectation is a pure
+-- spec is docs/standards.md (S1–S10); this module is its oracle: every expectation is a pure
 -- function of the ANSWER KEY given to the archetype — never of the language.
 --
 --   local p6m = require("p6m")
@@ -407,6 +407,53 @@ function p6m.driver(sut)
   return assert(drivers[sut.transport], "no driver for " .. tostring(sut.transport))(sut)
 end
 
+-- ── S10: CI parity — the rendered project's own CI commands, from a clean render ────────────────
+
+p6m.ci = {}
+
+--- The command sequences the rendered projects' CI pipelines run (the `p6m-actions` setup +
+--- build steps), per stack — mirrored HERE and nowhere else, so when an action changes this
+--- table is the one place to follow. Conditional steps keep the action's own guard verbatim
+--- (parity means failing exactly where CI would fail, skipping exactly where CI would skip).
+--- Reporting-only flags (trx loggers, results directories) are dropped: they can't change
+--- pass/fail, and S10 proves the command path, not the reporting.
+p6m.ci.stacks = {
+  -- js-pnpm-setup@v1 + js-pnpm-build@v1
+  pnpm = {
+    image = "node:22",
+    commands = {
+      "npm install -g pnpm",
+      "pnpm install",
+      [[if grep -q '"lint":' package.json; then pnpm lint; else echo "no lint script"; fi]],
+      [[if grep -q '"test":' package.json; then pnpm test; else echo "no test script"; fi]],
+      [[if grep -q '"build":' package.json; then pnpm build; else echo "no build script"; fi]],
+    },
+  },
+  -- dotnet-setup@v1 + dotnet-build@v1 (Release, tests on — the rendered build.yaml's shape)
+  dotnet = {
+    image = "mcr.microsoft.com/dotnet/sdk:9.0",
+    commands = {
+      "dotnet restore . --verbosity minimal",
+      "dotnet build . --configuration Release --no-restore --verbosity minimal",
+      "dotnet test . --configuration Release --no-build --verbosity minimal",
+    },
+  },
+  -- python / golang / java / rust: mirror their p6m-actions pairs when those archetypes adopt
+  -- S10 (golang/java/rust CI is itself still converging onto p6m-actions — see S9).
+}
+
+--- The throwaway CI-parity Dockerfile for a stack: toolchain base, clean-render context, one
+--- RUN per CI command — so `docker.build` success IS "the CI command sequence succeeds on a
+--- fresh clone", and a failure names the exact command that broke, layer-cached up to it.
+--- Pure text so the hermetic self-suite can hold it; `ci_parity` writes and builds it.
+function p6m.ci.dockerfile(stack, opts)
+  local lines = { "FROM " .. ((opts and opts.image) or stack.image), "WORKDIR /ci", "COPY . ." }
+  for _, cmd in ipairs(stack.commands) do
+    lines[#lines + 1] = "RUN " .. cmd
+  end
+  return table.concat(lines, "\n") .. "\n"
+end
+
 -- ── The standards suites ────────────────────────────────────────────────────────────────────────
 
 p6m.standards = {}
@@ -485,6 +532,34 @@ function p6m.standards.runtime(g, sut_fixture)
       non_json > 0,
       "every plain-mode (LOGGING_STRUCTURED=false) line still parsed as JSON — the flag is ignored"
     ):is_true()
+  end)
+end
+
+--- S10: the rendered project's own CI command path, from a fresh clone, hermetically (docker is
+--- still the only host requirement). One hollow render per archetype suffices — resource
+--- variants change dependencies, not the command path. The main-only CI tail (publish, cut-tag,
+--- manifest dispatch) is deliberately NOT here: that is the e2e harness's tier.
+---@param spec { stack: string, project_dir: string, name: string, image: string? }
+---   `stack`: a key of `p6m.ci.stacks`. `project_dir`: the project directory inside the render.
+---   `name`: unique per suite (tags the image, so concurrent suites sharing a docker daemon
+---   never trample each other's tag). `image`: toolchain override.
+function p6m.standards.ci_parity(g, project_fixture, spec)
+  local stack =
+    assert(p6m.ci.stacks[spec.stack], "p6m.standards.ci_parity: unknown stack " .. tostring(spec.stack))
+  g:test("CI commands succeed on a fresh clone (" .. spec.stack .. ")", function(t)
+    local root = t:use(project_fixture):dir(spec.project_dir).path
+    -- Written into the render because docker resolves the dockerfile against the context root;
+    -- COPY . . picks it up, which is harmless — it is not part of what the commands build.
+    local dockerfile = ".prova-s10-ci.Dockerfile"
+    local f = assert(io.open(root .. "/" .. dockerfile, "w"))
+    f:write(p6m.ci.dockerfile(stack, { image = spec.image }))
+    f:close()
+    local image = docker.build{
+      context = root,
+      dockerfile = dockerfile,
+      tag = "prova-s10-" .. spec.name .. ":latest",
+    }
+    t:expect(image, "CI-parity image (each CI command is a RUN layer)"):never():is_nil()
   end)
 end
 

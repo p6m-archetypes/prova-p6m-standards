@@ -75,4 +75,22 @@ function p6m.api.graphql_surface(id) end
 ---@return table<string, string>
 function p6m.env_contract(id, transport, values) end
 
+---@class p6m.CiStack
+---@field image string      # the toolchain image the commands run in
+---@field commands string[] # the exact p6m-actions setup+build command sequence, in order
+
+p6m.ci = {}
+
+--- The CI command sequences (S10), per stack — the one place the `p6m-actions` setup/build
+--- steps are mirrored. Keys: "pnpm", "dotnet" (more as archetypes adopt S10).
+---@type table<string, p6m.CiStack>
+p6m.ci.stacks = {}
+
+--- The throwaway CI-parity Dockerfile text for a stack (S10): toolchain base, clean-render
+--- context, one RUN per CI command. Pure — hermetically assertable.
+---@param stack p6m.CiStack
+---@param opts { image: string? }?
+---@return string
+function p6m.ci.dockerfile(stack, opts) end
+
 return p6m

@@ -73,6 +73,34 @@ prova.describe("api surfaces (User Details)", function()
 	end)
 end)
 
+prova.describe("s10 ci parity", function()
+	prova.test("pnpm stack mirrors js-pnpm-setup + js-pnpm-build", function(t)
+		local df = p6m.ci.dockerfile(p6m.ci.stacks.pnpm)
+		t:expect(df):matches("^FROM node:22\n")
+		t:expect(df, "context lands before any command runs"):matches("WORKDIR /ci\nCOPY %. %.\n")
+		t:expect(df):matches("RUN npm install %-g pnpm\n")
+		t:expect(df):matches("RUN pnpm install\n")
+		-- Conditional steps keep the action's own guard verbatim — parity means skipping
+		-- exactly where CI would skip, failing exactly where CI would fail.
+		for _, script in ipairs({ "lint", "test", "build" }) do
+			t:expect(df, script .. " guarded as the action guards it")
+				:matches([[RUN if grep %-q '"]] .. script .. [[":' package%.json; then pnpm ]] .. script)
+		end
+	end)
+
+	prova.test("dotnet stack mirrors dotnet-setup + dotnet-build", function(t)
+		local df = p6m.ci.dockerfile(p6m.ci.stacks.dotnet)
+		t:expect(df):matches("^FROM mcr%.microsoft%.com/dotnet/sdk:9%.0\n")
+		t:expect(df, "restore, then build without re-restore, then test without re-build")
+			:matches("RUN dotnet restore.*RUN dotnet build.*%-%-no%-restore.*RUN dotnet test.*%-%-no%-build")
+	end)
+
+	prova.test("a caller's toolchain override lands in FROM", function(t)
+		local df = p6m.ci.dockerfile(p6m.ci.stacks.pnpm, { image = "node:24" })
+		t:expect(df):matches("^FROM node:24\n")
+	end)
+end)
+
 prova.describe("env contract", function()
 	local id = p6m.identity{ prefix = "Customer" }
 

@@ -127,6 +127,29 @@ rendered project's CI, not to the archetype's suite.
 full build→docker→push→manifest-dispatch pipeline on `p6m-actions/*` (golang/java/rust
 currently stop at build; golang uses community actions).
 
+### S10 — CI parity (DRAFT 2026-07-23)
+**Every command the rendered project's own CI invokes must succeed on a fresh clone with only
+the stack's toolchain present.** The production Dockerfile (S8) and the CI build workflow are
+two independent build paths, and only the first was held by a proof — the drift bit on
+2026-07-23: typescript-grpc's `pnpm build` needed proto codegen that only its Dockerfile ran,
+so every rendered repo's CI failed at the first e2e push while the archetype suite stayed
+green. The corollary standard on the archetype itself: **a script CI invokes may not depend on
+untracked generated files** — codegen belongs inside the script that needs it.
+
+Proof mechanism (S8b-conformant — docker stays the only host requirement): a generated
+throwaway Dockerfile whose base is the stack's toolchain image, whose context is the clean
+render, and whose `RUN` steps are the exact command sequence the `p6m-actions` setup/build
+steps execute (`p6m.ci.stacks` is the one place that sequence is mirrored; conditional steps
+keep the action's own guard, e.g. `if grep -q '"lint":' package.json`). `docker.build` success
+IS the proof. One hollow (`[None]`) render per archetype suffices — resource variants change
+dependencies, not the command path.
+
+Scope note: S10 proves the *always-run* command path (lint/test/build from a clean checkout).
+The main-branch-only path (docker publish, cut-tag, manifest dispatch, real org secrets/vars,
+`p6m-actions` internals) is deliberately out of scope — that is the e2e harness's tier
+(`p6m-archetypes/archetype-e2e-tests`), which renders into a real org and watches the real
+workflow. The two tiers meet at this seam and must not duplicate each other.
+
 ## 3. The plugin: `prova-p6m-standards` (require name `p6m`)
 
 Everything is **parameterized by the same answers given to the archetype** — expectations are a
