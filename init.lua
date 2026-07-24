@@ -459,9 +459,11 @@ p6m.ci.stacks = {
     },
   },
   -- Community actions today (S9: not yet on p6m-actions): setup-go pinned to the rendered
-  -- go.mod line, then the workflow's guarded gRPC codegen (gen/ is imported but never rendered
-  -- — S10's second golang catch; plugin pins match the Dockerfile), tidy (a fresh render ships
-  -- no go.sum — S10's first golang catch), and the two inline run steps.
+  -- go.mod line, then the workflow's two guarded codegen steps for code that is imported but
+  -- never rendered (S10 golang catches) — protoc gen/ for gRPC BEFORE tidy (protoc is
+  -- standalone, and tidy must see gen/), gqlgen for GraphQL AFTER tidy (it is a Go tool, so its
+  -- dep must resolve first). tidy first materializes go.sum (a fresh render ships none). Plugin
+  -- pins/commands match the Dockerfile and the ci-library workflow verbatim.
   golang = {
     image = "golang:1.23",
     commands = {
@@ -473,6 +475,7 @@ p6m.ci.stacks = {
         .. " --go-grpc_out=gen --go-grpc_opt=paths=source_relative"
         .. " $(find proto -name '*.proto'); fi",
       "go mod tidy",
+      "if [ -f gqlgen.yml ]; then go run github.com/99designs/gqlgen generate && go mod tidy; fi",
       "go build ./...",
       "go test ./...",
     },
