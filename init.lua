@@ -438,8 +438,45 @@ p6m.ci.stacks = {
       "dotnet test . --configuration Release --no-build --verbosity minimal",
     },
   },
-  -- python / golang / java / rust: mirror their p6m-actions pairs when those archetypes adopt
-  -- S10 (golang/java/rust CI is itself still converging onto p6m-actions — see S9).
+  -- python-uv-setup@v1 + python-uv-build@v1 (uv preinstalled in the image — the setup action's
+  -- curl-install, resolved). The repository-login step is credentialed and publish-facing; the
+  -- always-run path proven here resolves from public PyPI, like a fresh contributor's clone.
+  python = {
+    image = "ghcr.io/astral-sh/uv:python3.12-bookworm",
+    commands = {
+      "uv sync",
+      [[if grep -q '\[tool\.ruff\]' pyproject.toml; then uv run ruff check; else echo "no ruff config"; fi]],
+      [[if grep -q '\[tool\.pytest\]' pyproject.toml || find . -name 'test_*.py' -o -name '*_test.py' | grep -q .; then uv run pytest; else echo "no tests"; fi]],
+      "uv build",
+    },
+  },
+  -- java-maven-setup@v1 + java-maven-build@v1, whose invocation the rendered build.yaml overrides
+  -- to a bare verify (run-test "false", build-command "mvn verify --no-transfer-progress").
+  java = {
+    image = "maven:3-eclipse-temurin-21",
+    commands = {
+      "mvn verify --no-transfer-progress",
+    },
+  },
+  -- Community actions today (S9: not yet on p6m-actions): setup-go pinned to the rendered
+  -- go.mod line, then the two inline run steps.
+  golang = {
+    image = "golang:1.23",
+    commands = {
+      "go build ./...",
+      "go test ./...",
+    },
+  },
+  -- Community actions today (S9): dtolnay/rust-toolchain@stable + the three inline run steps
+  -- (the official rust image ships clippy with its stable toolchain).
+  rust = {
+    image = "rust:1",
+    commands = {
+      "cargo build",
+      "cargo test",
+      "cargo clippy -- -D warnings",
+    },
+  },
 }
 
 --- The throwaway CI-parity Dockerfile for a stack: toolchain base, clean-render context, one

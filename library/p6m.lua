@@ -81,8 +81,9 @@ function p6m.env_contract(id, transport, values) end
 
 p6m.ci = {}
 
---- The CI command sequences (S10), per stack — the one place the `p6m-actions` setup/build
---- steps are mirrored. Keys: "pnpm", "dotnet" (more as archetypes adopt S10).
+--- The CI command sequences (S10), per stack — the one place each rendered build.yaml's
+--- setup/build steps are mirrored (p6m-actions pairs, or the community-action inline steps
+--- golang/rust still run). Keys: "pnpm", "dotnet", "python", "java", "golang", "rust".
 ---@type table<string, p6m.CiStack>
 p6m.ci.stacks = {}
 
