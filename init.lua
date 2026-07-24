@@ -503,8 +503,18 @@ p6m.ci.stacks = {
 --- RUN per CI command — so `docker.build` success IS "the CI command sequence succeeds on a
 --- fresh clone", and a failure names the exact command that broke, layer-cached up to it.
 --- Pure text so the hermetic self-suite can hold it; `ci_parity` writes and builds it.
+---
+--- Pinned to `linux/amd64` because the p6m-actions runners are `ubuntu-latest` (amd64): the
+--- proof must build the arch CI builds, or it is not parity. On an arm64 host amd64 runs under
+--- emulation (slower, faithful); it also sidesteps arch-specific toolchain bugs that would
+--- otherwise make the proof lie — e.g. Grpc.Tools ships an arm64 `protoc` that segfaults
+--- (exit 139) where the amd64 binary CI uses is fine.
 function p6m.ci.dockerfile(stack, opts)
-  local lines = { "FROM " .. ((opts and opts.image) or stack.image), "WORKDIR /ci", "COPY . ." }
+  local lines = {
+    "FROM --platform=linux/amd64 " .. ((opts and opts.image) or stack.image),
+    "WORKDIR /ci",
+    "COPY . .",
+  }
   for _, cmd in ipairs(stack.commands) do
     lines[#lines + 1] = "RUN " .. cmd
   end
