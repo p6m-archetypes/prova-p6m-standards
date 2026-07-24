@@ -459,22 +459,28 @@ p6m.ci.stacks = {
     },
   },
   -- Community actions today (S9: not yet on p6m-actions): setup-go pinned to the rendered
-  -- go.mod line, then the two inline run steps.
+  -- go.mod line, then tidy (a fresh render ships no go.sum — S10's first golang catch) and the
+  -- two inline run steps.
   golang = {
     image = "golang:1.23",
     commands = {
+      "go mod tidy",
       "go build ./...",
       "go test ./...",
     },
   },
-  -- Community actions today (S9): dtolnay/rust-toolchain@stable + the three inline run steps
-  -- (the official rust image ships clippy with its stable toolchain).
+  -- rust-setup@v1 + rust-build@v1 defaults (format-check, lint, test, build — all on), per the
+  -- converged rust-ci-library#dev pipeline. protoc first: prost/tonic build scripts need it and
+  -- neither rust-setup nor the runner image provides it (S10's rust catch — the workflow now
+  -- installs it too; the image ships clippy/rustfmt with its stable toolchain).
   rust = {
     image = "rust:1",
     commands = {
-      "cargo build",
-      "cargo test",
+      "apt-get update && apt-get install -y protobuf-compiler",
+      "cargo fmt -- --check",
       "cargo clippy -- -D warnings",
+      "cargo test",
+      "cargo build",
     },
   },
 }
