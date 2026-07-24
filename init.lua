@@ -476,6 +476,9 @@ p6m.ci.stacks = {
   rust = {
     image = "rust:1",
     commands = {
+      -- environment the runner's rust-setup provides: fmt/clippy components (the rust:1 image
+      -- ships the bare toolchain) and protoc (S10's rust catch — nothing on the runner had it)
+      "rustup component add rustfmt clippy",
       "apt-get update && apt-get install -y protobuf-compiler",
       "cargo fmt -- --check",
       "cargo clippy -- -D warnings",
