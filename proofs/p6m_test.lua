@@ -129,8 +129,17 @@ prova.describe("s10 ci parity", function()
 			:matches("RUN if %[ %-d proto %]; then.*protoc%-gen%-go@v1%.36%.5.*protoc%-gen%-go%-grpc@v1%.5%.1.*; fi\n")
 		t:expect(go, "protoc before tidy (standalone, and tidy must see gen/); gqlgen after (a Go tool)")
 			:matches("; fi\nRUN go mod tidy\nRUN if %[ %-f gqlgen%.yml %]; then go run github%.com/99designs/gqlgen generate")
-		t:expect(go, "build/test last")
-			:matches("; fi\nRUN go build %./%.%.%.\nRUN go test %./%.%.%.\n")
+		t:expect(go, "gofmt and vet gate before the build — golang-build's defaults since 2026-07-27")
+			:matches("RUN go vet %./%.%.%.\nRUN go build %./%.%.%.\nRUN go test %./%.%.%.\n")
+	end)
+
+	prova.test("golang's gofmt gate fails on output, not on exit status", {
+		proves = "`gofmt -l` prints misformatted files and still exits 0, so a bare `gofmt -l .` as a"
+			.. " RUN layer always passes and proves nothing — the guard is the whole assertion",
+	}, function(t)
+		local go = p6m.ci.dockerfile(p6m.ci.stacks.golang)
+		t:expect(go):matches('RUN if %[ %-n "%$%(gofmt %-l %.%)" %]; then.*exit 1; fi\n')
+		t:expect(go, "and never as a bare command"):never():matches("RUN gofmt %-l %.\n")
 	end)
 
 	prova.test("rust stack mirrors rust-setup + rust-build defaults, protoc first", function(t)

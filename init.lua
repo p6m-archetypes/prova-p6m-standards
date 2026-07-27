@@ -464,9 +464,21 @@ p6m.ci.stacks = {
   -- is where S10 says they belong: two guarded codegen steps for code that is imported but never
   -- rendered — protoc gen/ for gRPC BEFORE tidy (protoc is standalone, and tidy must see gen/),
   -- gqlgen for GraphQL AFTER tidy (it is a Go tool, so its dep must resolve first). tidy first
-  -- materializes go.sum (a fresh render ships none). gofmt/vet/golangci-lint are deliberately NOT
-  -- here: golang-build ships them defaulted off, so turning them on is one change to that action
-  -- plus this table, made together.
+  -- materializes go.sum (a fresh render ships none). gofmt and vet are the config-free,
+  -- toolchain-native gates, matching what rust (fmt + clippy) and python (ruff) already run.
+  -- golangci-lint stays out of both: it is a third-party meta-linter whose enabled set moves
+  -- between its own releases, so a repo that passes today would fail on a version bump it never
+  -- asked for.
+  --
+  -- Mirror status (2026-07-27): golang-build's gofmt/vet defaults are on a PR
+  -- (p6m-actions/golang-build#YP6M-3172), because that org now requires one for main. Until it
+  -- merges this stack is deliberately STRICTER than the rendered CI rather than looser — the
+  -- archetypes were made gofmt-clean first, so it passes today and holds the line against
+  -- regression while the action catches up. If that PR is rejected, drop these two commands.
+  --
+  -- The gofmt line is a guard, not a bare command, because `gofmt -l` reports misformatted files on
+  -- stdout and still EXITS 0 — a bare `gofmt -l .` in a RUN layer always "succeeds" and would prove
+  -- nothing. The action makes the same distinction.
   golang = {
     image = "golang:1.23",
     commands = {
@@ -479,6 +491,8 @@ p6m.ci.stacks = {
         .. " $(find proto -name '*.proto'); fi",
       "go mod tidy",
       "if [ -f gqlgen.yml ]; then go run github.com/99designs/gqlgen generate && go mod tidy; fi",
+      [[if [ -n "$(gofmt -l .)" ]; then echo "misformatted:"; gofmt -l .; exit 1; fi]],
+      "go vet ./...",
       "go build ./...",
       "go test ./...",
     },
