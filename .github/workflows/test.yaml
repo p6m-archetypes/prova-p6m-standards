@@ -1,7 +1,9 @@
 name: Test
 on:
   push:
-    branches: [ main ]
+    # dev too: the fleet develops here, and consumers pin `@dev` while a standards change is
+    # unreleased — so an unrun dev tip is six archetypes' CI broken before anyone notices.
+    branches: [ main, dev ]
   pull_request:
 
 jobs:
@@ -16,6 +18,11 @@ jobs:
       # skip cleanly here unless you also stand that resource up (Docker is available on the runner).
       - name: Run the plugin's self-test
         uses: prova-rs/run-action@v1
+        with:
+          # Pin the engine, per E7 — the action's own default goes stale as prova moves, and this
+          # plugin is where the parse/decode skew between a release and a source build is bridged,
+          # so it is the last place that should be guessing which engine it is running on.
+          version: v0.11.0
 
       # prova is now on PATH — check the plugin conforms to the namespacing grammar.
       - name: Lint the plugin
