@@ -521,6 +521,588 @@ function p6m.ci.dockerfile(stack, opts)
   return table.concat(lines, "\n") .. "\n"
 end
 
+-- ── E1–E7: the overlay ("empty") archetypes ─────────────────────────────────────────────────────
+--
+-- An overlay archetype retrofits an EXISTING application: it renders only the platform servicing
+-- layer (CI/CD workflows, container builds, platform manifests, repo hygiene) IN PLACE at the
+-- destination root, and never a line of project scaffolding. Nothing it emits can be booted, so
+-- S2 and S4-S7 have no subject and S10 has no rendered project whose CI could run. What replaces
+-- them is stricter containment (E3), a non-destructive retrofit (E4), and cross-artifact coherence
+-- of the CI/CD wiring (E5) — the seams that actually break a legacy app's first deploy.
+-- The spec is docs/standards.md §2b.
+
+p6m.empty = {}
+
+--- E3: the platform servicing layer — the COMPLETE set of paths an overlay may write. Held as an
+--- ALLOWLIST rather than a denylist of guessed scaffolding names: `writes ⊆ allowed` cannot be
+--- satisfied by a language the oracle never heard of, needs no per-language list to maintain, and
+--- names the offending file when it fails. Archetypes declare anything extra they carry (e.g. a
+--- Tiltfile) via `spec.extras` — declared, so it is a decision and not an accident.
+p6m.empty.PLATFORM_LAYER = {
+  -- repo hygiene (dotfiles only; E3's root rule). A legacy repo keeps its own — see E4.
+  ".editorconfig",
+  ".gitattributes",
+  ".gitignore",
+  -- CI
+  ".github/workflows/build.yaml",
+  ".github/workflows/cut-tag.yaml",
+  -- container builds (the prd one is what CI publishes and the platform deploys)
+  ".platform/docker/local/Dockerfile",
+  ".platform/docker/prd/Dockerfile",
+  -- CD: the platform manifests
+  ".platform/kubernetes/base/application.yaml",
+  ".platform/kubernetes/base/application_customizations.yaml",
+  ".platform/kubernetes/base/kustomization.yaml",
+  ".platform/kubernetes/dev/application_patch.yaml",
+  ".platform/kubernetes/dev/kustomization.yaml",
+  ".platform/kubernetes/dev/namespace.yaml",
+  ".platform/kubernetes/stg/application_patch.yaml",
+  ".platform/kubernetes/stg/kustomization.yaml",
+  ".platform/kubernetes/stg/namespace.yaml",
+  ".platform/kubernetes/prd/application_patch.yaml",
+  ".platform/kubernetes/prd/kustomization.yaml",
+  ".platform/kubernetes/prd/namespace.yaml",
+}
+
+--- The environments the manifests overlay, in the order the platform promotes through them.
+p6m.empty.ENVIRONMENTS = { "dev", "stg", "prd" }
+
+local function set_of(list)
+  local s = {}
+  for _, v in ipairs(list) do
+    s[v] = true
+  end
+  return s
+end
+
+--- E1: the overlay answer key and everything derived from it. `application` is the ONLY name asked
+--- — it is at once the image name, the PlatformApplication name, the CD manifest directory and the
+--- Tilt resource; `solution` is the namespace prefix the platform operator reads the solution back
+--- out of. Accepts any input shape ("Example Service", "example-service", "ExampleService").
+---
+--- Deliberately NOT here: prefix/suffix decomposition, org × solution split, author identity — a
+--- service archetype needs those to name code it generates, and an overlay generates none.
+---@param o { language: string, application: string, solution: string, registry: string,
+---           protocol: string?, service_port: integer?, management_port: integer?,
+---           persistence: string?, cache: string?, messaging: string?, messaging_access: string?,
+---           extras: string[]? }
+function p6m.empty.spec(o)
+  assert(type(o) == "table" and o.application, "p6m.empty.spec requires { application = ... }")
+  local app = tokens(o.application)
+  local protocol = o.protocol or "REST"
+  local service_port = o.service_port or (protocol == "gRPC" and 50051 or 8080)
+
+  local s = {
+    language = assert(o.language, "p6m.empty.spec requires { language = ... }"),
+    application = joined(app, "-"),
+    application_snake = joined(app, "_"),
+    ApplicationName = pascal(app),
+    solution = joined(tokens(assert(o.solution, "p6m.empty.spec requires { solution = ... }")), "-"),
+    registry = assert(o.registry, "p6m.empty.spec requires { registry = ... }"),
+    protocol = protocol,
+    service_port = service_port,
+    management_port = o.management_port or (service_port + 1),
+    persistence = o.persistence or "None",
+    cache = o.cache or "None",
+    messaging = o.messaging or "None",
+    messaging_access = o.messaging_access or "produce",
+    extras = o.extras or {},
+  }
+
+  -- S3's contract, as the manifest must inject it for this transport
+  s.port_env_key = protocol == "gRPC" and "GRPC_PORT" or "SERVER_PORT"
+  s.port_protocol = protocol == "gRPC" and "grpc" or "http"
+  s.image_repository = s.registry .. "/" .. s.solution .. "/" .. s.application
+  s.image = s.image_repository .. ":latest"
+
+  -- E2: the three facts with no sane default. Rendering with ONLY these and no defaults fallback
+  -- must succeed — that is the whole prompt-surface proof.
+  s.required_answers = {
+    project_name = s.application,
+    org_solution_name = s.solution,
+    image_registry = s.registry,
+  }
+
+  -- The full key: the required facts plus the defaulted selections a variant exercises.
+  s.answers = {
+    project_name = s.application,
+    org_solution_name = s.solution,
+    image_registry = s.registry,
+    protocol = s.protocol,
+    service_port = s.service_port,
+    management_port = s.management_port,
+    persistence = s.persistence,
+    cache = s.cache,
+    messaging = s.messaging,
+    messaging_access = s.messaging_access,
+  }
+
+  -- E3's allowlist for this archetype
+  s.allowed = {}
+  for _, f in ipairs(p6m.empty.PLATFORM_LAYER) do
+    s.allowed[#s.allowed + 1] = f
+  end
+  for _, f in ipairs(s.extras) do
+    s.allowed[#s.allowed + 1] = f
+  end
+
+  s.label = s.language .. "-empty[" .. s.application .. "/" .. s.protocol .. "/" .. s.persistence .. "]"
+  return s
+end
+
+--- The namespace the manifests place the application in for an environment: `{solution}-{app}-{env}`
+--- (E1 — the convention the platform operator derives solution + environment back out of).
+function p6m.empty.namespace(s, env)
+  return s.solution .. "-" .. s.application .. "-" .. env
+end
+
+--- The resourceRequirements the selected resources must produce, in manifest order (E6). Keyed by
+--- resourceName because that is the handle the platform injects connection secrets under.
+function p6m.empty.resource_requirements(s)
+  local want = {}
+  local db = ({ PostgreSQL = "postgresql", MySQL = "mysql" })[s.persistence]
+  if db then
+    want[#want + 1] = { resourceType = db, resourceName = "db" }
+  end
+  if s.cache == "Redis" then
+    want[#want + 1] = { resourceType = "redis", resourceName = "cache" }
+  end
+  local bus = ({ Kafka = "kafka", Pulsar = "pulsar-topic" })[s.messaging]
+  if bus then
+    want[#want + 1] = {
+      resourceType = bus,
+      resourceName = "messaging",
+      scope = "Shared",
+      access = s.messaging_access,
+    }
+  end
+  return want
+end
+
+--- The shared render fixture: one headless render of the overlay per spec, with `defaults = false`
+--- so a prompt outside the tactical key errors instead of being papered over (E2). Scope.Suite by
+--- default — the composed prompt libraries all resolve from git, and a suite's worth of renders
+--- sharing one tree is both faster and what `[run] jobs = 1` already implies.
+---@param s table a `p6m.empty.spec` result
+---@param opts { source: string?, scope: any?, answers: table? }?
+function p6m.empty.render(s, opts)
+  opts = opts or {}
+  return prova.fixture(s.label .. ":project", opts.scope or Scope.Suite, function(ctx)
+    return archetect.render{
+      source = opts.source or ".",
+      answers = opts.answers or s.answers,
+      destination = ctx:tempdir(),
+      defaults = false,
+    }
+  end)
+end
+
+-- The paths a render intended to write, relative to its root and sorted — E3/E4's raw material.
+-- `RenderResult.writes` is authoritative: it is what the overlay CLAIMS, independent of whatever
+-- was already on disk (which is exactly the distinction E4 turns on).
+local function written(rendering)
+  local root, rel = rendering.path, {}
+  for _, abs in ipairs(rendering.writes or {}) do
+    rel[#rel + 1] = abs:sub(#root + 2)
+  end
+  table.sort(rel)
+  return rel
+end
+p6m.empty.written = written
+
+p6m.empty.standards = {}
+
+--- E3: the render IS the platform servicing layer — all of it, and nothing else.
+function p6m.empty.standards.layout(g, project, s)
+  g:test("renders the platform servicing layer", function(t)
+    local r = t:use(project)
+    t:expect_all(function()
+      for _, f in ipairs(s.allowed) do
+        t:expect(fs.exists(r.path .. "/" .. f), f):is_true()
+      end
+    end)
+  end)
+
+  g:test("renders nothing but the platform servicing layer", {
+    proves = "E3: an allowlist, so scaffolding in a language the oracle never heard of still fails",
+  }, function(t)
+    local allowed = set_of(s.allowed)
+    t:expect_all(function()
+      for _, f in ipairs(written(t:use(project))) do
+        t:expect(allowed[f], f .. " is not part of the platform layer"):is_true()
+      end
+    end)
+  end)
+
+  g:test("writes nothing at the repo root but dotfiles and declared extras", {
+    proves = "E3: a generated top-level Dockerfile/Makefile/README is scaffolding by another name,"
+      .. " and in a retrofit it lands beside (or instead of) the app's own. A root file that is"
+      .. " genuinely required by name (Tilt only reads ./Tiltfile) has to be DECLARED in extras —"
+      .. " the point is that it is a visible decision and not an accretion",
+  }, function(t)
+    local declared = set_of(s.extras)
+    t:expect_all(function()
+      for _, f in ipairs(written(t:use(project))) do
+        if not f:find("/") and not declared[f] then
+          t:expect(f:sub(1, 1) == ".", "undeclared root-level " .. f):is_true()
+        end
+      end
+    end)
+  end)
+
+  g:test("leaves no unrendered template markers", function(t)
+    t:expect(t:use(project)):is_fully_rendered()
+  end)
+end
+
+--- E6: the platform manifests say what the answers imply.
+function p6m.empty.standards.manifests(g, project, s)
+  local BASE = "/.platform/kubernetes/base/"
+
+  g:test("PlatformApplication carries the platform env contract", function(t)
+    local app = yaml.decode(fs.read(t:use(project).path .. BASE .. "application.yaml"))
+    t:expect(app.apiVersion, "apiVersion"):equals("meta.p6m.dev/v1alpha1")
+    t:expect(app.kind, "kind"):equals("PlatformApplication")
+    t:expect(app.metadata.name, "metadata.name"):equals(s.application)
+    t:expect(app.metadata.labels["p6m.dev/app"], "app label"):equals(s.application)
+
+    -- S3, as the manifest must inject it: the transport's port key and nothing else's
+    local other = s.port_env_key == "GRPC_PORT" and "SERVER_PORT" or "GRPC_PORT"
+    t:expect(app.spec.config[s.port_env_key], s.port_env_key):equals(tostring(s.service_port))
+    t:expect(app.spec.config[other], other .. " must not be injected for " .. s.protocol):is_nil()
+    t:expect(app.spec.config.MANAGEMENT_PORT, "MANAGEMENT_PORT"):equals(tostring(s.management_port))
+    t:expect(app.spec.config.LOGGING_STRUCTURED, "LOGGING_STRUCTURED"):equals("true")
+  end)
+
+  g:test("PlatformApplication deploys the derived image on both ports", function(t)
+    local app = yaml.decode(fs.read(t:use(project).path .. BASE .. "application.yaml"))
+    local d = app.spec.deployment
+    t:expect(d.image, "image"):equals(s.image)
+
+    local by_port = {}
+    for _, p in ipairs(d.ports or {}) do
+      by_port[p.port] = p.protocol
+    end
+    t:expect(by_port[s.service_port], "service port protocol"):equals(s.port_protocol)
+    t:expect(by_port[s.management_port], "management port protocol"):equals("http")
+
+    -- S5: readiness is probed on the management port, never the service port
+    t:expect(d.readinessProbe.port, "readiness port"):equals(s.management_port)
+    t:expect(d.readinessProbe.path, "readiness path"):equals("/health/readiness")
+  end)
+
+  g:test("resourceRequirements match the selected resources", function(t)
+    local app = yaml.decode(fs.read(t:use(project).path .. BASE .. "application.yaml"))
+    local want, got = p6m.empty.resource_requirements(s), app.spec.resourceRequirements or {}
+    t:expect(#got, "requirement count"):equals(#want)
+    t:expect_all(function()
+      for i, w in ipairs(want) do
+        local g_ = got[i] or {}
+        t:expect(g_.resourceType, "requirement " .. i .. " type"):equals(w.resourceType)
+        t:expect(g_.resourceName, "requirement " .. i .. " name"):equals(w.resourceName)
+        if w.scope then
+          t:expect(g_.scope, "requirement " .. i .. " scope"):equals(w.scope)
+          t:expect(g_.access, "requirement " .. i .. " access"):equals(w.access)
+        end
+      end
+    end)
+  end)
+
+  g:test("every environment overlay parses and is namespaced {solution}-{app}-{env}", function(t)
+    local root = t:use(project).path
+    t:expect_all(function()
+      for _, env in ipairs(p6m.empty.ENVIRONMENTS) do
+        local ns = p6m.empty.namespace(s, env)
+        local dir = root .. "/.platform/kubernetes/" .. env .. "/"
+        local kust = yaml.decode(fs.read(dir .. "kustomization.yaml"))
+        t:expect(kust.kind, env .. " kustomization kind"):equals("Kustomization")
+        t:expect(kust.namespace, env .. " kustomization namespace"):equals(ns)
+        t:expect(yaml.decode(fs.read(dir .. "namespace.yaml")).metadata.name, env .. " Namespace"):equals(ns)
+      end
+    end)
+  end)
+end
+
+--- E5: the CI/CD wiring agrees with itself. Every assertion here spans TWO artifacts — a first
+--- deploy breaks on disagreement between them, never on either one read alone.
+---
+--- `opts.cd_spec` authors the three CD-dependent tests as open specs with that reason: a language
+--- whose ci-library still stops at build has no publish step and no dispatch step for them to be
+--- consistent WITH, and that is a gap in the ci-library, not a disagreement in the overlay.
+---@param opts { cd_spec: string? }?
+function p6m.empty.standards.cicd(g, project, s, opts)
+  local cd_spec = opts and opts.cd_spec
+
+  local function workflow(t)
+    return yaml.decode(fs.read(t:use(project).path .. "/.github/workflows/build.yaml"))
+  end
+
+  -- Named steps are found by the action they use, so a renamed step never silently stops being
+  -- checked (which a `name:` lookup would).
+  local function step_using(steps, pattern)
+    for _, step in ipairs(steps or {}) do
+      if step.uses and step.uses:find(pattern) then
+        return step
+      end
+    end
+  end
+
+  g:test("the build workflow is a valid workflow", function(t)
+    local build = workflow(t)
+    -- `on:` is the YAML 1.1 boolean `true` once decoded — pin the trigger by that key
+    t:expect(build[true] or build["on"], "workflow triggers"):never():is_nil()
+    t:expect(build.jobs and build.jobs.build, "a `build` job"):never():is_nil()
+  end)
+
+  g:test("the build workflow names the application as its image", { spec = cd_spec }, function(t)
+    local env = workflow(t).env or {}
+    t:expect(env.IMAGE_NAME, "IMAGE_NAME"):equals(s.application)
+    t:expect(env.APPLICATION_NAME, "APPLICATION_NAME"):equals(s.application)
+  end)
+
+  g:test("the workflow's dockerfile-path names a Dockerfile the overlay rendered", {
+    spec = cd_spec,
+    proves = cd_spec == nil
+      and "E5: the publish step and the container build are two artifacts; CD dies on the seam"
+      or nil,
+  }, function(t)
+    local r = t:use(project)
+    local publish = step_using(workflow(t).jobs.build.steps, "docker%-buildx%-build%-publish")
+    t:expect(publish, "a docker-buildx-build-publish step"):never():is_nil()
+    local path = publish["with"]["dockerfile-path"]
+    t:expect(fs.exists(r.path .. "/" .. path), "dockerfile-path " .. path .. " exists"):is_true()
+  end)
+
+  g:test("the manifest-dispatch directory is the application name", {
+    spec = cd_spec,
+    proves = cd_spec == nil
+      and "E5: directory-name is the path CD writes into in the manifests repo — a mismatch means"
+        .. " the pipeline is green and the deployment never updates"
+      or nil,
+  }, function(t)
+    local dispatch = step_using(
+      workflow(t).jobs.build.steps, "platform%-application%-manifest%-dispatch"
+    )
+    t:expect(dispatch, "a platform-application-manifest-dispatch step"):never():is_nil()
+    -- Both resolve through workflow env, which the sibling test pinned to the application name.
+    t:expect(dispatch["with"]["directory-name"], "directory-name"):equals("${{ env.APPLICATION_NAME }}")
+    t:expect(dispatch["with"]["image-name"], "image-name"):equals("${{ env.IMAGE_NAME }}")
+  end)
+
+  g:test("the dev overlay renames the same image repository the manifest deploys", function(t)
+    local kust = yaml.decode(
+      fs.read(t:use(project).path .. "/.platform/kubernetes/dev/kustomization.yaml")
+    )
+    local names = {}
+    for _, img in ipairs(kust.images or {}) do
+      names[img.name] = img
+    end
+    local dev = names[s.image_repository]
+    t:expect(dev, "a kustomize image rename for " .. s.image_repository):never():is_nil()
+    t:expect(dev.newName, "local image name"):equals(s.application)
+  end)
+
+  g:test("every workflow step is pinned to a version", function(t)
+    local root = t:use(project).path
+    t:expect_all(function()
+      for _, wf in ipairs(fs.glob(root, ".github/workflows/*.yaml")) do
+        local doc = yaml.decode(fs.read(wf))
+        for job_name, job in pairs(doc.jobs) do
+          for _, step in ipairs(job.steps or {}) do
+            if step.uses then
+              t:expect(step.uses:find("@"), job_name .. ": " .. step.uses .. " is unpinned")
+                :never():is_nil()
+            end
+          end
+        end
+      end
+    end)
+  end)
+end
+
+--- E2: the prompt surface IS the tactical minimum. Two halves, because a render can only observe
+--- one of them: a headless render with ONLY the required facts and no defaults fallback proves
+--- nothing else is REQUIRED; the archetype's own catalog proves no vestigial DEFAULTED prompt
+--- survives (a suffix selector, a debug port nothing publishes — invisible to a render).
+---@param opts { source: string?, root: string?, catalog: string[]? }?
+function p6m.empty.standards.prompt_surface(g, s, opts)
+  opts = opts or {}
+  local source = opts.source or "."
+
+  g:test("renders from the tactical answers alone, with no defaults fallback", {
+    proves = "E2: archetect makes an unanswered prompt that has no default a hard error naming the"
+      .. " key, so a required answer the overlay's output never reads cannot hide",
+  }, function(t)
+    local r = archetect.render{
+      source = source,
+      answers = s.required_answers,
+      destination = t:tempdir(),
+      defaults = false,
+    }
+    t:expect(#written(r) > 0, "the overlay rendered its platform layer"):is_true()
+  end)
+
+  g:test("composes no prompt library that asks for identity opinions", {
+    proves = "E2's other half: a DEFAULTED vestigial prompt is invisible to a render, so the bar"
+      .. " is held on the declared composition surface instead",
+  }, function(t)
+    local allowed = set_of(opts.catalog or {
+      -- prompts the tactical key answers, or that render no prompt at all
+      "ports", "editor-config", "gitignore", "scm", "archiver",
+      "platform-application-manifests",
+      s.language .. "-ci",
+    })
+    local manifest = yaml.decode(fs.read((opts.root or ".") .. "/archetype.yaml"))
+    t:expect_all(function()
+      for name in pairs(manifest.catalog or {}) do
+        t:expect(allowed[name], "composed library `" .. name .. "`"):is_true()
+      end
+    end)
+  end)
+end
+
+--- E4: retrofit is additive. Seeds a fake legacy application, renders the overlay over it, and
+--- holds what the overlay must not touch.
+---
+--- Two halves, because only one of them is the ARCHETYPE's to satisfy:
+---
+---   * The application's own project files must survive — a property of the archetype (it is E3
+---     restated on a dirty tree: the writes stay inside the platform layer), so a full proof.
+---   * The application's own HYGIENE files (.gitignore/.editorconfig/.gitattributes) should survive
+---     too — but whether they do is the RENDER ENGINE's overwrite policy, not the archetype's, and
+---     the two engines disagree: the archetect CLI skips a path that already exists, while prova's
+---     in-process engine overwrites everything it writes. So it is authored as a spec (measured
+---     2026-07-27 against archetect 3.4.0 / prova 0.11.0). See docs/standards.md §2b E4.
+---@param opts { source: string?, legacy: table<string,string>?, hygiene: table<string,string>? }?
+function p6m.empty.standards.retrofit(g, s, opts)
+  opts = opts or {}
+  -- Project files the overlay has no business owning, in the shapes real repos have them.
+  local legacy = opts.legacy or {
+    ["README.md"] = "# legacy application\n",
+    ["Dockerfile"] = "FROM scratch\n# the application's own image build\n",
+    ["Makefile"] = "build:\n\t@echo the application's own build\n",
+    ["src/entrypoint.txt"] = "the application's own source tree\n",
+  }
+  -- Hygiene files the overlay would otherwise own.
+  local hygiene = opts.hygiene or {
+    [".gitignore"] = "/legacy-build-output\n",
+    [".editorconfig"] = "root = true\n[*]\nindent_size = 7\n",
+  }
+
+  local function retrofit(t, seed)
+    local dest = t:tempdir()
+    for path, contents in pairs(seed) do
+      fs.write(dest .. "/" .. path, contents)
+    end
+    archetect.render{
+      source = opts.source or ".",
+      answers = s.answers,
+      destination = dest,
+      defaults = false,
+    }
+    return dest
+  end
+
+  g:test("retrofits an application without touching its project files", {
+    proves = "E4: E3's containment restated on a dirty tree — the overlay adds its platform layer"
+      .. " to a repo that already has a build, a README and a source tree, and leaves them alone",
+  }, function(t)
+    local dest = retrofit(t, legacy)
+    t:expect_all(function()
+      for path, contents in pairs(legacy) do
+        t:expect(fs.read(dest .. "/" .. path), path .. " untouched"):equals(contents)
+      end
+      -- …and the platform layer still landed alongside them
+      for _, f in ipairs({
+        ".github/workflows/build.yaml",
+        ".platform/kubernetes/base/application.yaml",
+        ".platform/docker/prd/Dockerfile",
+      }) do
+        t:expect(fs.exists(dest .. "/" .. f), f .. " added"):is_true()
+      end
+    end)
+  end)
+
+  g:test("leaves the application's own hygiene files alone", {
+    spec = "E4: the app's ignores and formatting rules outrank ours. The archetect CLI already"
+      .. " skips an existing path, but prova's in-process engine overwrites, so this cannot be"
+      .. " held from a proof yet — it needs the engines to agree (or the gitignore/editor-config"
+      .. " libraries to merge rather than replace). YP6M-3172",
+  }, function(t)
+    local dest = retrofit(t, hygiene)
+    t:expect_all(function()
+      for path, contents in pairs(hygiene) do
+        t:expect(fs.read(dest .. "/" .. path), path .. " untouched"):equals(contents)
+      end
+    end)
+  end)
+end
+
+--- E7: the archetype repo's own suite and CI hygiene. `opts.pin_spec`, when given, authors the
+--- released-tag assertion as an open spec with that reason — for the window between a standards
+--- change landing on dev and the release that lets consumers pin it.
+---@param opts { root: string?, pin_spec: string? }?
+function p6m.empty.standards.hygiene(g, opts)
+  opts = opts or {}
+  local root = opts.root or "."
+
+  g:test("the suite is configured on the keys prova reads", function(t)
+    local manifest = toml.decode(fs.read(root .. "/prova.toml"))
+    t:expect(manifest.run and manifest.run.proofs, "[run] proofs (S9: `paths` is dead in ≥0.7)")
+      :never():is_nil()
+    t:expect(manifest.plugins and manifest.plugins.p6m, "[plugins] p6m"):never():is_nil()
+    t:expect(fs.read(root .. "/.gitignore"), ".gitignore"):contains(".last-failed.json")
+  end)
+
+  g:test("the p6m plugin is pinned to a released tag", { spec = opts.pin_spec }, function(t)
+    local pin = toml.decode(fs.read(root .. "/prova.toml")).plugins.p6m
+    t:expect(type(pin) == "string" and pin or "", "the pin is a source string"):matches("@v%d")
+  end)
+
+  g:test("acceptance CI runs the suite on prova-rs/run-action, with no toolchain", {
+    proves = "E7: an overlay suite renders and inspects, so a runner needs nothing but prova —"
+      .. " a language setup step here is a claim about a project that was never generated",
+  }, function(t)
+    local wf = yaml.decode(fs.read(root .. "/.github/workflows/acceptance.yaml"))
+    local uses = {}
+    for _, job in pairs(wf.jobs) do
+      for _, step in ipairs(job.steps or {}) do
+        if step.uses then
+          uses[#uses + 1] = step.uses
+        end
+      end
+    end
+    local runs_prova = false
+    t:expect_all(function()
+      for _, u in ipairs(uses) do
+        if u:find("^prova%-rs/run%-action@v") then
+          runs_prova = true
+        end
+        t:expect(u:find("setup%-"), "no toolchain step, but found " .. u):is_nil()
+      end
+    end)
+    t:expect(runs_prova, "a prova-rs/run-action@v… step"):is_true()
+  end)
+end
+
+--- Everything that is a function of ONE answer set (E3–E6): invoke per variant.
+---@param opts { source: string?, legacy: table<string,string>?, hygiene: table<string,string>?,
+---              cd_spec: string? }?
+function p6m.empty.standards.rendering(g, project, s, opts)
+  p6m.empty.standards.layout(g, project, s)
+  p6m.empty.standards.manifests(g, project, s)
+  p6m.empty.standards.cicd(g, project, s, opts)
+  p6m.empty.standards.retrofit(g, s, opts)
+end
+
+--- Everything that is a property of the ARCHETYPE REPO rather than of a variant (E2, E7): invoke
+--- once, whatever the variant count.
+---@param opts { source: string?, root: string?, catalog: string[]?, pin_spec: string? }?
+function p6m.empty.standards.archetype(g, s, opts)
+  p6m.empty.standards.prompt_surface(g, s, opts)
+  p6m.empty.standards.hygiene(g, opts)
+end
+
 -- ── The standards suites ────────────────────────────────────────────────────────────────────────
 
 p6m.standards = {}

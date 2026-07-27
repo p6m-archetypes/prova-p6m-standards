@@ -158,3 +158,143 @@ prova.describe("env contract", function()
 		t:expect(rest.GRPC_PORT):is_nil()
 	end)
 end)
+
+-- ── E1–E3: the overlay oracle ───────────────────────────────────────────────────────────────────
+-- Hermetic, like the identity oracle above: pure functions of the tactical answer key. The suites
+-- that consume these (p6m.empty.standards.*) are proven where they are used — in the six
+-- *-service-empty-archetype repos, against real renders.
+
+prova.describe("overlay spec: multi-word application (Example Service)", function()
+	local s = p6m.empty.spec{
+		language = "rust",
+		application = "Example Service",
+		solution = "Acme Platform",
+		registry = "ghcr.io/acme",
+		persistence = "PostgreSQL",
+		extras = { "Tiltfile" },
+	}
+
+	prova.test("derives every deployment name from the one application answer", function(t)
+		t:expect(s.application):equals("example-service")
+		t:expect(s.application_snake):equals("example_service")
+		t:expect(s.ApplicationName):equals("ExampleService")
+		t:expect(s.solution):equals("acme-platform")
+		t:expect(s.image_repository):equals("ghcr.io/acme/acme-platform/example-service")
+		t:expect(s.image):equals("ghcr.io/acme/acme-platform/example-service:latest")
+	end)
+
+	prova.test("namespaces every environment {solution}-{application}-{env}", function(t)
+		t:expect(p6m.empty.namespace(s, "dev")):equals("acme-platform-example-service-dev")
+		t:expect(p6m.empty.namespace(s, "stg")):equals("acme-platform-example-service-stg")
+		t:expect(p6m.empty.namespace(s, "prd")):equals("acme-platform-example-service-prd")
+	end)
+
+	prova.test("tolerates every input shape for the application name", function(t)
+		for _, shape in ipairs({ "Example Service", "example-service", "example_service", "ExampleService" }) do
+			local v = p6m.empty.spec{ language = "rust", application = shape, solution = "acme", registry = "r" }
+			t:expect(v.application, shape):equals("example-service")
+		end
+	end)
+
+	prova.test("E2: the required answer key is exactly the three facts with no sane default", function(t)
+		local keys = {}
+		for k in pairs(s.required_answers) do
+			keys[#keys + 1] = k
+		end
+		table.sort(keys)
+		t:expect(table.concat(keys, ",")):equals("image_registry,org_solution_name,project_name")
+	end)
+
+	prova.test("E2: the answer key names no identity opinion", function(t)
+		for _, forbidden in ipairs({
+			"author_name", "author_email", "org_name", "solution_name",
+			"prefix_name", "suffix_name", "debug_port",
+		}) do
+			t:expect(s.answers[forbidden], forbidden .. " must not be asked"):is_nil()
+		end
+	end)
+
+	prova.test("E3: the allowlist is the platform layer plus the declared extras", function(t)
+		t:expect(#s.allowed):equals(#p6m.empty.PLATFORM_LAYER + 1)
+		local has_tiltfile = false
+		for _, f in ipairs(s.allowed) do
+			if f == "Tiltfile" then
+				has_tiltfile = true
+			end
+		end
+		t:expect(has_tiltfile, "declared extras are allowed"):is_true()
+	end)
+
+	prova.test("E3: the platform layer is dotfiles at the root, nothing else", function(t)
+		for _, f in ipairs(p6m.empty.PLATFORM_LAYER) do
+			if not f:find("/") then
+				t:expect(f:sub(1, 1) == ".", f .. " at the repo root"):is_true()
+			end
+		end
+	end)
+end)
+
+prova.describe("overlay spec: the transport decides the env contract", function()
+	local function spec(protocol)
+		return p6m.empty.spec{
+			language = "golang", application = "billing", solution = "acme",
+			registry = "r", protocol = protocol,
+		}
+	end
+
+	prova.test("REST binds SERVER_PORT on 8080/8081 over http", function(t)
+		local s = spec("REST")
+		t:expect(s.port_env_key):equals("SERVER_PORT")
+		t:expect(s.port_protocol):equals("http")
+		t:expect(s.service_port):equals(8080)
+		t:expect(s.management_port):equals(8081)
+	end)
+
+	prova.test("GraphQL is an HTTP transport — same contract as REST", function(t)
+		local s = spec("GraphQL")
+		t:expect(s.port_env_key):equals("SERVER_PORT")
+		t:expect(s.port_protocol):equals("http")
+	end)
+
+	prova.test("gRPC binds GRPC_PORT on 50051/50052 over grpc", function(t)
+		local s = spec("gRPC")
+		t:expect(s.port_env_key):equals("GRPC_PORT")
+		t:expect(s.port_protocol):equals("grpc")
+		t:expect(s.service_port):equals(50051)
+		t:expect(s.management_port):equals(50052)
+	end)
+end)
+
+prova.describe("overlay spec: resourceRequirements", function()
+	local function reqs(o)
+		o.language, o.application, o.solution, o.registry = "java", "billing", "acme", "r"
+		return p6m.empty.resource_requirements(p6m.empty.spec(o))
+	end
+
+	prova.test("a hollow overlay declares none", function(t)
+		t:expect(#reqs{}):equals(0)
+	end)
+
+	prova.test("each selection maps to its platform resource type", function(t)
+		t:expect(reqs{ persistence = "PostgreSQL" }[1].resourceType):equals("postgresql")
+		t:expect(reqs{ persistence = "MySQL" }[1].resourceType):equals("mysql")
+		t:expect(reqs{ cache = "Redis" }[1].resourceType):equals("redis")
+		t:expect(reqs{ messaging = "Kafka" }[1].resourceType):equals("kafka")
+		t:expect(reqs{ messaging = "Pulsar" }[1].resourceType):equals("pulsar-topic")
+	end)
+
+	prova.test("messaging is Shared and carries the chosen access", function(t)
+		local m = reqs{ messaging = "Kafka", messaging_access = "consume" }[1]
+		t:expect(m.resourceName):equals("messaging")
+		t:expect(m.scope):equals("Shared")
+		t:expect(m.access):equals("consume")
+	end)
+
+	prova.test("all three selections come in manifest order: db, cache, messaging", function(t)
+		local r = reqs{ persistence = "PostgreSQL", cache = "Redis", messaging = "Pulsar" }
+		t:expect(#r):equals(3)
+		t:expect(r[1].resourceName):equals("db")
+		t:expect(r[2].resourceName):equals("cache")
+		t:expect(r[3].resourceName):equals("messaging")
+	end)
+end)

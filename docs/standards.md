@@ -150,6 +150,139 @@ The main-branch-only path (docker publish, cut-tag, manifest dispatch, real org 
 (`p6m-archetypes/archetype-e2e-tests`), which renders into a real org and watches the real
 workflow. The two tiers meet at this seam and must not duplicate each other.
 
+## 2b. The overlay ("empty") archetypes — E1–E7 (2026-07-27)
+
+The six `*-service-empty-archetype` repos are a different kind of thing from the eighteen service
+archetypes, and holding them to S1–S10 mostly asks the wrong questions. An **overlay** archetype
+retrofits an **existing** application: it renders only the platform servicing layer — CI/CD
+workflows, container builds, platform manifests, repo hygiene — **in place at the destination
+root**, and never a line of project scaffolding. Nothing is generated that could be booted, so S2
+(API), S4–S7 (logging/health/metrics/traces) and S10 (CI parity — there is no rendered project
+whose CI could be run) have no subject here.
+
+What replaces them is stricter on the axes that *do* exist. The failure modes of a retrofit are
+not "the service answers the wrong route"; they are "the generator wrote a `pom.xml` into
+someone's Gradle app", "it clobbered the app's `.gitignore`", "it asked the platform team to
+invent an org and a solution before it would emit a workflow", and "the image name in the
+workflow doesn't match the one in the manifest, so CD silently never updates". E1–E7 are those
+seams.
+
+### E1 — One tactical answer, everything else derived
+The overlay asks for **deployment facts, not identity opinions**. The application name is the
+only name it asks: it is simultaneously the container image name, the `PlatformApplication`
+name, the CD manifest directory (`directory-name`), and the Tilt resource. From it and the
+solution slug everything else is derived:
+
+- image repository — `{registry}/{solution}/{application}`
+- namespace, per environment — `{solution}-{application}-{env}` (the platform operator derives
+  solution + environment back out of this, which is what lets `Shared` resources be shared)
+- repo name / GitHub owner for the optional SCM step
+
+There is deliberately **no** `prefix_name`/`suffix_name` decomposition, no `org_name` ×
+`solution_name` split, and no author identity: a service archetype needs those to name packages,
+namespaces and modules in code it is generating, and an overlay generates none of that.
+
+### E2 — The prompt surface IS the tactical minimum
+**An overlay may require no answer that its rendered output does not consume.** The bar is
+mechanical and black-box: rendering headlessly with only the tactical answer key and **no
+defaults fallback** must succeed. Archetect makes an unanswered prompt that has no default a hard
+error naming the key, so a stray required prompt cannot hide — and a prompt whose answer nothing
+reads cannot justify itself.
+
+The tactical key, in full — three facts with no sane default, plus defaulted selections:
+
+| Answer | Consumed by |
+|---|---|
+| `project_name` (the application/image name) | workflow `IMAGE_NAME`/`APPLICATION_NAME`, manifest name + namespace + labels, image path, Tiltfile |
+| `org_solution_name` (the solution slug) | image path, `{solution}-{app}-{env}` namespaces |
+| `image_registry` | image path |
+| `protocol` (default REST) | `SERVER_PORT` vs `GRPC_PORT`, the manifest's port protocol |
+| `service_port`, `management_port` | manifest ports + config, `EXPOSE`, readiness probe |
+| `persistence`, `cache`, `messaging` (+ access) | manifest `resourceRequirements` |
+| `scm_provider` (default None) | the optional publish-the-repo step |
+
+Corollary held by the same suite: the archetype's `archetype.yaml` catalog may compose only
+libraries whose prompts survive that table — which is how a *defaulted* vestigial prompt
+(a suffix selector, a debug port nothing publishes) is caught, since a render can't observe one.
+
+### E3 — Nothing but the platform layer (allowlist, not denylist)
+The proof is that the set of paths the render **writes** is a subset of the platform servicing
+layer, plus whatever extras that archetype declares (e.g. a `Tiltfile`). An allowlist rather
+than a denylist of guessed scaffolding filenames: `writes ⊆ allowed` cannot be satisfied by a
+language the oracle never heard of, it needs no per-language list to maintain, and its failure
+message names the offending file. `prova.RenderResult.writes` is the authoritative input — the
+render's own intended writes, independent of whatever was already on disk.
+
+A consequence worth stating on its own: **the overlay writes nothing at the repo root except
+dotfiles it owns.** A generated top-level `Dockerfile`, `Makefile` or `README.md` is project
+scaffolding by another name, and in a retrofit it lands next to (or instead of) the app's own.
+
+### E4 — Retrofit is additive
+Rendered over a directory that already holds an application, the overlay must add its platform
+layer and **change nothing that was already there**. Proof: seed a fake legacy project, render
+into it, diff the tree.
+
+This splits in two, and only one half is the archetype's to satisfy:
+
+- **The application's project files** (`README.md`, `Dockerfile`, `Makefile`, its source tree)
+  must survive. That is E3's containment restated on a dirty tree — a property of the archetype,
+  held as a full proof.
+- **The application's hygiene files** (`.gitignore`, `.editorconfig`, `.gitattributes`) should
+  survive too: its ignores and formatting rules outrank ours. But whether they do is the *render
+  engine's* overwrite policy, not the archetype's — and **the two engines disagree.** Measured
+  2026-07-27 (archetect 3.4.0, prova 0.11.0): the archetect CLI skips a path that already exists,
+  so a real retrofit preserves them; prova's in-process engine overwrites every path it writes,
+  so a proof run through it sees them replaced. Held as an open **spec** until the engines agree,
+  or until the `gitignore`/`editor-config` libraries merge into an existing file rather than
+  replacing it. Do not "fix" this by weakening the assertion — the standard is right, the
+  measurement path is what is missing.
+
+The same divergence is why E3's containment matters independently: under prova's engine, anything
+the overlay writes *would* clobber, so keeping its writes inside the platform layer is the actual
+safety property.
+
+### E5 — The CI/CD wiring agrees with itself
+The seam that actually breaks a first deploy is cross-artifact disagreement, so the identity is
+asserted **across** artifacts, not within one:
+
+- `build.yaml`'s `IMAGE_NAME` and `APPLICATION_NAME` == the application name
+- the `docker-buildx-build-publish` step's `dockerfile-path` names a Dockerfile that the render
+  actually produced
+- the manifest-dispatch step's `directory-name` == the application name (this is the path CD
+  writes into in the manifests repo)
+- `PlatformApplication.spec.deployment.image` == `{registry}/{solution}/{application}:latest`
+- the dev overlay's kustomize image rename targets that same repository
+
+**Open on golang (2026-07-27).** `golang-ci-library`'s `build.yaml` still stops at `go build` /
+`go test`: no `env:` block, no image publish, no release, no manifest dispatch — so there is
+nothing for the three cross-artifact assertions above to be consistent *with*, and they are
+authored as specs in `golang-service-empty-archetype` rather than weakened. This is the S9/Phase-3
+ci-library gap, and it is load-bearing here in a way it is not for a service archetype: an overlay
+whose entire purpose is to platform-ize a legacy app and which emits no CD does not do its job.
+
+It is blocked on a decision, not on effort: **there is no `p6m-actions/golang-*` action at all**
+(no `golang-setup`, `golang-build`, `golang-cut-tag` — checked against the p6m-actions org on
+2026-07-27, which is why the library uses community actions today). The CD half can be assembled
+from actions that already exist and are language-agnostic — `git-cut-tag`,
+`docker-repository-login`, `docker-buildx-setup`, `docker-buildx-build-publish`,
+`platform-application-manifest-dispatch` (rust uses the last four verbatim) — **or** the three
+missing `p6m-actions/golang-*` actions get created and golang converges with the other five. That
+choice lands on every golang service repo, not just this one, so it is not the overlay sweep's to
+make.
+
+### E6 — The platform manifests are correct for the answers
+`PlatformApplication` parses and carries: the protocol's port key (`SERVER_PORT` xor
+`GRPC_PORT`) at the service port, `MANAGEMENT_PORT`, `LOGGING_STRUCTURED: "true"`, a readiness
+probe on the management port, both ports declared with the right protocol, and
+`resourceRequirements` exactly matching the selected persistence/cache/messaging. Every
+environment overlay parses and namespaces `{solution}-{application}-{env}`.
+
+### E7 — Suite and CI hygiene
+As S9, for these repos: `[run] proofs = [...]`, the `p6m` plugin declared and pinned to a
+released tag, `.last-failed.json` gitignored, `acceptance.yaml` on `prova-rs/run-action@v1`, and
+no language toolchain step in that workflow — an overlay suite renders and inspects, so a
+runner needs nothing but prova.
+
 ## 3. The plugin: `prova-p6m-standards` (require name `p6m`)
 
 Everything is **parameterized by the same answers given to the archetype** — expectations are a
@@ -179,6 +312,28 @@ p6m.standards.runtime(t, sut, id)  -- S3-S7: env honored, logs, health, metrics,
   built on prova's topology network + `docker.build` primitives.
 - `p6m.standards.*` — the shared suites (api, runtime, docker, hygiene) each archetype's thin
   proof file invokes per variant (transport × persistence × name-shape).
+- `p6m.empty.*` — the overlay layer (E1–E7): `p6m.empty.spec{}` is the tactical-answer oracle,
+  `p6m.empty.render` the shared render fixture, and `p6m.empty.standards.*` the suites the six
+  `*-service-empty-archetype` repos invoke. Same discipline: expectations are a pure function of
+  the answer key, so a language's overlay is held to the identical bar.
+
+```lua
+local p6m = require("p6m")
+
+local overlay = p6m.empty.spec{
+  language = "rust", application = "Example Service", solution = "acme-platform",
+  registry = "ghcr.io/acme", persistence = "PostgreSQL", extras = { "Tiltfile" },
+}
+local project = p6m.empty.render(overlay)
+
+prova.group(overlay.label, function(g)
+  p6m.empty.standards.rendering(g, project, overlay)   -- E3–E6: a function of one answer set
+end)
+
+prova.group("rust-empty overlay: the archetype itself", function(g)
+  p6m.empty.standards.archetype(g, overlay)            -- E2, E7: properties of the repo
+end)
+```
 - **Cross-language meta-proof (this repo's own suite):** render *N languages* of the same
   transport with the same answers and diff the reflected API surfaces against each other — the
   literal "indistinguishable" proof, held here so it can't drift per-repo.
@@ -202,7 +357,9 @@ p6m = { git = "https://github.com/p6m-archetypes/prova-p6m-standards", tag = "v1
   against the standards suite. golang and rust start from zero suites — they get the thin
   standard proof file directly, no legacy to migrate.
 - **Phase 3 — basic/empty + CI parity.** basic: runtime standards only (S3-S8, stub `GET /`
-  identity route). empty: render-verify only. ci-libraries: bring golang/java/rust to the full
-  docker+CD pipeline; golang onto `p6m-actions`.
+  identity route). empty: E1–E7 (§2b) — **done 2026-07-27**: all six overlays hold the shared
+  `p6m.empty` suites; the three hand-rolled suites (java/python/typescript) that had drifted onto
+  a removed `yaml.parse` API are replaced by it, and rust/golang/dotnet gain suites from zero.
+  ci-libraries: bring golang/java/rust to the full docker+CD pipeline; golang onto `p6m-actions`.
 - **Phase 4 — platform manifests.** livenessProbe added; contract keys asserted against
   `p6m.identity` from the same suite.
