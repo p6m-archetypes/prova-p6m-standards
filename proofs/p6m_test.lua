@@ -307,3 +307,46 @@ prova.describe("overlay spec: resourceRequirements", function()
 		t:expect(r[3].resourceName):equals("messaging")
 	end)
 end)
+
+-- ── S4: the JSON-line judgment itself ───────────────────────────────────────────────────────────
+-- This exists because the original spelling (`prova.parse.json`) does not exist on ANY engine and
+-- was called through `pcall`, which swallowed the nil and answered "not JSON" for every line ever
+-- inspected. That is the worst shape a bug can take here: it broke S4 in both directions at once —
+-- "logs are structured JSON lines" could never pass, and "the flag is read" passed vacuously — and
+-- both looked like verdicts about the SERVICE rather than about the oracle. A live suite could not
+-- tell the difference; only a hermetic proof of the judgment can.
+
+prova.describe("S4: the JSON-line judgment", function()
+	prova.test("recognizes a real structured log line", function(t)
+		t:expect(p6m.is_json_object('{"time":"2026-07-27T21:19:20Z","level":"INFO","msg":"started"}'))
+			:is_true()
+	end)
+
+	prova.test("rejects human-readable output", function(t)
+		for _, line in ipairs({
+			"2026-07-27T21:19:20.557Z INFO service server starting port=18080",
+			"INFO  [main] com.example.Service - started",
+			"",
+			"not json at all",
+		}) do
+			t:expect(p6m.is_json_object(line), "plain: " .. line):is_false()
+		end
+	end)
+
+	prova.test("rejects JSON that is not an object", {
+		proves = "a bare scalar or array is valid JSON but not a log RECORD, and counting it would"
+			.. " let a service emitting stray numbers look structured",
+	}, function(t)
+		for _, line in ipairs({ "42", '"a string"' }) do
+			t:expect(p6m.is_json_object(line), "scalar: " .. line):is_false()
+		end
+	end)
+
+	prova.test("the judgment is a real function, not a nil reached through pcall", {
+		proves = "the original bug: pcall(prova.parse.json, line) is indistinguishable from"
+			.. " 'this line is not JSON' when the function does not exist",
+	}, function(t)
+		t:expect(type(p6m.is_json_object)):equals("function")
+		t:expect(type(json.decode), "the decoder it delegates to"):equals("function")
+	end)
+end)

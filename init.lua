@@ -82,6 +82,17 @@ function p6m.identity(spec)
   return id
 end
 
+--- Whether a log line parses as a JSON object. `prova.parse.json` does NOT exist on any engine
+--- (checked against released v0.11.0 and a source build) — it was reached through `pcall`, which
+--- swallowed the nil and reported "not JSON" for every line ever inspected. That broke S4 in both
+--- directions at once: "logs are structured JSON lines" could never pass, and "the flag is read"
+--- passed vacuously because every line counted as non-JSON. `json.decode` is stable on both.
+local function is_json_object(line)
+  local ok, v = pcall(json.decode, line)
+  return ok and type(v) == "table"
+end
+p6m.is_json_object = is_json_object
+
 -- ── S2: the API surfaces — expectations per transport ───────────────────────────────────────────
 
 p6m.api = {}
@@ -261,8 +272,7 @@ function p6m.sut(ctx, spec)
     -- keep the final snapshot — the runtime suite makes the actual judgment (and fails honestly).
     local function has_non_json(logs)
       for line in logs:gmatch("[^\r\n]+") do
-        local ok, v = pcall(prova.parse.json, line)
-        if not (ok and type(v) == "table") then return true end
+        if not is_json_object(line) then return true end
       end
       return false
     end
@@ -608,6 +618,7 @@ end
 local function toml_decode(text)
   return (toml.decode or toml.parse)(text)
 end
+
 
 --- E1: the overlay answer key and everything derived from it. `application` is the ONLY name asked
 --- — it is at once the image name, the PlatformApplication name, the CD manifest directory and the
@@ -1211,8 +1222,7 @@ function p6m.standards.runtime(g, sut_fixture)
     local logs = sut.container:logs()
     local structured = 0
     for line in logs:gmatch("[^\r\n]+") do
-      local ok, v = pcall(prova.parse.json, line)
-      if ok and type(v) == "table" then structured = structured + 1 end
+      if is_json_object(line) then structured = structured + 1 end
     end
     t:expect(structured > 0, "no JSON log lines despite LOGGING_STRUCTURED=true"):is_true()
   end)
@@ -1224,8 +1234,7 @@ function p6m.standards.runtime(g, sut_fixture)
     end
     local non_json = 0
     for line in sut.plain_logs:gmatch("[^\r\n]+") do
-      local ok, v = pcall(prova.parse.json, line)
-      if not (ok and type(v) == "table") then non_json = non_json + 1 end
+      if not is_json_object(line) then non_json = non_json + 1 end
     end
     t:expect(
       non_json > 0,
