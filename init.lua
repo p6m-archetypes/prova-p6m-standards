@@ -1064,24 +1064,40 @@ function p6m.empty.standards.hygiene(g, opts)
       .. " a language setup step here is a claim about a project that was never generated",
   }, function(t)
     local wf = yaml.decode(fs.read(root .. "/.github/workflows/acceptance.yaml"))
-    local uses = {}
+    local prova_step
+    t:expect_all(function()
+      for _, job in pairs(wf.jobs) do
+        for _, step in ipairs(job.steps or {}) do
+          if step.uses then
+            if step.uses:find("^prova%-rs/run%-action@v") then
+              prova_step = step
+            end
+            t:expect(step.uses:find("setup%-"), "no toolchain step, but found " .. step.uses):is_nil()
+          end
+        end
+      end
+    end)
+    t:expect(prova_step, "a prova-rs/run-action@v… step"):never():is_nil()
+  end)
+
+  g:test("acceptance CI pins the prova version the suite is authored against", {
+    proves = "E7: run-action's `version` input defaults to a fixed release that goes stale as prova"
+      .. " moves, so inheriting it silently runs the suite on an engine it was never written for."
+      .. " Measured 2026-07-27: the default was v0.10.0, where `toml` does not exist and yaml"
+      .. " decoding is still named yaml.parse — every proof reading a manifest or a workflow died"
+      .. " on a nil global in CI while passing locally on 0.11.",
+  }, function(t)
+    local wf = yaml.decode(fs.read(root .. "/.github/workflows/acceptance.yaml"))
+    local pinned
     for _, job in pairs(wf.jobs) do
       for _, step in ipairs(job.steps or {}) do
-        if step.uses then
-          uses[#uses + 1] = step.uses
+        if step.uses and step.uses:find("^prova%-rs/run%-action@v") then
+          pinned = step["with"] and step["with"].version
         end
       end
     end
-    local runs_prova = false
-    t:expect_all(function()
-      for _, u in ipairs(uses) do
-        if u:find("^prova%-rs/run%-action@v") then
-          runs_prova = true
-        end
-        t:expect(u:find("setup%-"), "no toolchain step, but found " .. u):is_nil()
-      end
-    end)
-    t:expect(runs_prova, "a prova-rs/run-action@v… step"):is_true()
+    t:expect(pinned, "an explicit `version:` on the run-action step"):never():is_nil()
+    t:expect(tostring(pinned), "a released prova version"):matches("^v%d+%.%d+")
   end)
 end
 
