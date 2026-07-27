@@ -127,10 +127,21 @@ rendered project's CI, not to the archetype's suite.
 see §2b E7), `.last-failed.json` gitignored. Rendered-project CI: all six languages get the full
 build→docker→push→manifest-dispatch pipeline on `p6m-actions/*`.
 
-Status: **golang closed 2026-07-27** — `p6m-actions/golang-{setup,build,cut-tag}` created and
-released at `@v1`, and `golang-ci-library` converged onto them (§2b E5 has the details, including
-why golang's cut-tag is tag-driven where every other ecosystem's rewrites a manifest field).
-**java and rust still stop at build** — no image, no CD — and are the remaining work on this axis.
+Status (2026-07-27): **this axis is closed — all six languages render the full pipeline.** Audited
+directly against each `*-ci-library`'s `dev` on that date: every one has cut-tag, image publish and
+manifest dispatch.
+
+**golang was the last gap**, and the only one needing new actions:
+`p6m-actions/golang-{setup,build,cut-tag}` were created and released at `@v1`, and
+`golang-ci-library` converged onto them (§2b E5 has the details, including why golang's cut-tag is
+tag-driven where every other ecosystem's rewrites a manifest field).
+
+**java and rust were already done** before this sweep — java by
+`YP6M-3071/align-build-workflow-with-docker-release`, rust during the S10 work. The §1 survey line
+saying otherwise is dated 2026-07-22 and simply predates both. Flagging that explicitly because it
+is a trap: that row still reads "golang/java/rust build only", and a local checkout that predates
+those merges reproduces the same wrong conclusion. **Check the org's `dev`, not §1 and not a working
+copy**, before deciding this work is outstanding.
 
 ### S10 — CI parity (DRAFT 2026-07-23)
 **Every command the rendered project's own CI invokes must succeed on a fresh clone with only
