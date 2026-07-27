@@ -458,12 +458,15 @@ p6m.ci.stacks = {
       "mvn verify --no-transfer-progress",
     },
   },
-  -- Community actions today (S9: not yet on p6m-actions): setup-go pinned to the rendered
-  -- go.mod line, then the workflow's two guarded codegen steps for code that is imported but
-  -- never rendered (S10 golang catches) — protoc gen/ for gRPC BEFORE tidy (protoc is
-  -- standalone, and tidy must see gen/), gqlgen for GraphQL AFTER tidy (it is a Go tool, so its
-  -- dep must resolve first). tidy first materializes go.sum (a fresh render ships none). Plugin
-  -- pins/commands match the Dockerfile and the ci-library workflow verbatim.
+  -- golang-setup@v1 + golang-build@v1 (created 2026-07-27; golang was the last ecosystem with no
+  -- p6m-actions trio, which is why this stack used to mirror community actions). The commands are
+  -- unchanged by that convergence — they moved from the rendered workflow into golang-build, which
+  -- is where S10 says they belong: two guarded codegen steps for code that is imported but never
+  -- rendered — protoc gen/ for gRPC BEFORE tidy (protoc is standalone, and tidy must see gen/),
+  -- gqlgen for GraphQL AFTER tidy (it is a Go tool, so its dep must resolve first). tidy first
+  -- materializes go.sum (a fresh render ships none). gofmt/vet/golangci-lint are deliberately NOT
+  -- here: golang-build ships them defaulted off, so turning them on is one change to that action
+  -- plus this table, made together.
   golang = {
     image = "golang:1.23",
     commands = {

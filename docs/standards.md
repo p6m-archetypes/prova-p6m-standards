@@ -123,9 +123,14 @@ rendered project's CI, not to the archetype's suite.
 ### S9 — Suite and CI hygiene
 `prova.toml` uses `[run] proofs = [...]` (prova ≥0.7), plugins pinned to released tags
 (`prova-rs/prova-postgres@v1` etc. — released 2026-07-22), `acceptance.yaml` on
-`run-action@v1`, `.last-failed.json` gitignored. Rendered-project CI: all six languages get the
-full build→docker→push→manifest-dispatch pipeline on `p6m-actions/*` (golang/java/rust
-currently stop at build; golang uses community actions).
+`run-action@v1` **with an explicit `version:`** (its default release goes stale as prova moves —
+see §2b E7), `.last-failed.json` gitignored. Rendered-project CI: all six languages get the full
+build→docker→push→manifest-dispatch pipeline on `p6m-actions/*`.
+
+Status: **golang closed 2026-07-27** — `p6m-actions/golang-{setup,build,cut-tag}` created and
+released at `@v1`, and `golang-ci-library` converged onto them (§2b E5 has the details, including
+why golang's cut-tag is tag-driven where every other ecosystem's rewrites a manifest field).
+**java and rust still stop at build** — no image, no CD — and are the remaining work on this axis.
 
 ### S10 — CI parity (DRAFT 2026-07-23)
 **Every command the rendered project's own CI invokes must succeed on a fresh clone with only
@@ -253,22 +258,27 @@ asserted **across** artifacts, not within one:
 - `PlatformApplication.spec.deployment.image` == `{registry}/{solution}/{application}:latest`
 - the dev overlay's kustomize image rename targets that same repository
 
-**Open on golang (2026-07-27).** `golang-ci-library`'s `build.yaml` still stops at `go build` /
-`go test`: no `env:` block, no image publish, no release, no manifest dispatch — so there is
-nothing for the three cross-artifact assertions above to be consistent *with*, and they are
-authored as specs in `golang-service-empty-archetype` rather than weakened. This is the S9/Phase-3
-ci-library gap, and it is load-bearing here in a way it is not for a service archetype: an overlay
-whose entire purpose is to platform-ize a legacy app and which emits no CD does not do its job.
+**Closed on golang (2026-07-27).** golang used to be the exception here: `golang-ci-library`'s
+`build.yaml` stopped at `go build` / `go test` — no `env:` block, no image publish, no release, no
+manifest dispatch — so the three assertions above had nothing to be consistent *with*, and they
+were authored as specs. The blocker was that **no `p6m-actions/golang-*` action existed at all**,
+which is why the library ran community actions.
 
-It is blocked on a decision, not on effort: **there is no `p6m-actions/golang-*` action at all**
-(no `golang-setup`, `golang-build`, `golang-cut-tag` — checked against the p6m-actions org on
-2026-07-27, which is why the library uses community actions today). The CD half can be assembled
-from actions that already exist and are language-agnostic — `git-cut-tag`,
-`docker-repository-login`, `docker-buildx-setup`, `docker-buildx-build-publish`,
-`platform-application-manifest-dispatch` (rust uses the last four verbatim) — **or** the three
-missing `p6m-actions/golang-*` actions get created and golang converges with the other five. That
-choice lands on every golang service repo, not just this one, so it is not the overlay sweep's to
-make.
+The three were built and released (`golang-setup`, `golang-build`, `golang-cut-tag`, all `@v1`) and
+`golang-ci-library` now renders the same publish → release → dispatch tail as rust and dotnet, so
+the specs graduated to proofs. Two things about golang stayed different, and both are load-bearing:
+
+- **`golang-cut-tag` is tag-driven, not manifest-driven.** Every other ecosystem's cut-tag rewrites
+  a version field (`Cargo.toml`, `package.json`, the `.csproj`, the `pom`); a Go module has none —
+  `go.mod` states the module path and language version, never the module's own version. For Go the
+  git tag *is* the version. So it bumps nothing and commits nothing, and its version-line file is
+  optional, which is what lets it run on a legacy repository that has no version file to add.
+- **The rendered checkout needs `fetch-depth: 0`**, since the tags are the version history. rust
+  reads `Cargo.toml` and needs no history, which is why its workflow omits this.
+
+The codegen steps also moved out of the rendered workflow and into `golang-build`, per S10: a script
+CI invokes may not depend on untracked generated files, and having them in the workflow made every
+consumer re-declare them.
 
 ### E6 — The platform manifests are correct for the answers
 `PlatformApplication` parses and carries: the protocol's port key (`SERVER_PORT` xor
