@@ -1096,7 +1096,21 @@ function p6m.empty.standards.hygiene(g, opts)
     t:expect(manifest.run and manifest.run.proofs, "[run] proofs (S9: `paths` is dead in ≥0.7)")
       :never():is_nil()
     t:expect(manifest.plugins and manifest.plugins.p6m, "[plugins] p6m"):never():is_nil()
-    t:expect(fs.read(root .. "/.gitignore"), ".gitignore"):contains(".last-failed.json")
+  end)
+
+  g:test("prova's own generated artifacts are gitignored, not committed", {
+    proves = "S9: every prova run writes .luarc.json and annotations/, and .luarc.json holds"
+      .. " absolute paths into ONE machine's prova data dir and plugin cache. Ignoring them is not"
+      .. " tidiness — a tracked one is committed the moment anyone else runs the suite, and it"
+      .. " silently overwrites whatever paths the last person committed. Found tracked in 19 of the"
+      .. " fleet's prova packages on 2026-07-27.",
+  }, function(t)
+    local gitignore = fs.read(root .. "/.gitignore")
+    t:expect_all(function()
+      for _, artifact in ipairs({ ".last-failed.json", ".luarc.json", "annotations/" }) do
+        t:expect(gitignore, artifact .. " ignored"):contains(artifact)
+      end
+    end)
   end)
 
   g:test("the p6m plugin is pinned to a released tag", { spec = opts.pin_spec }, function(t)
