@@ -602,22 +602,13 @@ local function set_of(list)
   return s
 end
 
--- prova renamed its deserializers `parse` -> `decode` AFTER v0.11.0 (`yaml.parse`, `toml.parse`),
--- so the two engines a suite meets expose different names: a RELEASED binary — what
--- prova-rs/run-action installs on a runner — has only the old names, a build from source only the
--- new ones, and both report version 0.11.0. Bridge them, resolved at call time, so one suite is
--- green on a laptop and on CI. That is S8b's promise ("behave identically on a laptop and a CI
--- runner") applied to the engine itself — and the skew is not hypothetical: it is exactly why the
--- three hand-rolled suites this sweep replaced passed in CI while failing locally, and why these
--- six failed in CI while passing locally. `json` is unaffected (decode/encode in both).
--- Delete once a release ships the new names.
-local function yaml_decode(text)
-  return (yaml.decode or yaml.parse)(text)
-end
-
-local function toml_decode(text)
-  return (toml.decode or toml.parse)(text)
-end
+-- prova's document formats read with `decode` and write with `encode` — api-freeze §1, ratified
+-- 2026-07-23 and amended 2026-07-26. The former `parse`/`dump` spellings were removed outright with
+-- NO aliases, deliberately: "a shim would only be a second name to keep working, a second thing to
+-- document, and a route for the drift to grow back." This plugin briefly carried such a shim, which
+-- was the wrong instinct — it let consumers keep running an engine four releases behind without
+-- noticing. The fleet resolves its engine through `prova-rs/run-action@v1`, which now tracks every
+-- prova release automatically, so the current names are the only ones any consumer sees.
 
 
 --- E1: the overlay answer key and everything derived from it. `application` is the ONLY name asked
@@ -838,7 +829,7 @@ function p6m.empty.standards.manifests(g, project, s)
   local BASE = "/.platform/kubernetes/base/"
 
   g:test("PlatformApplication carries the platform env contract", function(t)
-    local app = yaml_decode(fs.read(t:use(project).path .. BASE .. "application.yaml"))
+    local app = yaml.decode(fs.read(t:use(project).path .. BASE .. "application.yaml"))
     t:expect(app.apiVersion, "apiVersion"):equals("meta.p6m.dev/v1alpha1")
     t:expect(app.kind, "kind"):equals("PlatformApplication")
     t:expect(app.metadata.name, "metadata.name"):equals(s.application)
@@ -853,7 +844,7 @@ function p6m.empty.standards.manifests(g, project, s)
   end)
 
   g:test("PlatformApplication deploys the derived image on both ports", function(t)
-    local app = yaml_decode(fs.read(t:use(project).path .. BASE .. "application.yaml"))
+    local app = yaml.decode(fs.read(t:use(project).path .. BASE .. "application.yaml"))
     local d = app.spec.deployment
     t:expect(d.image, "image"):equals(s.image)
 
@@ -870,7 +861,7 @@ function p6m.empty.standards.manifests(g, project, s)
   end)
 
   g:test("resourceRequirements match the selected resources", function(t)
-    local app = yaml_decode(fs.read(t:use(project).path .. BASE .. "application.yaml"))
+    local app = yaml.decode(fs.read(t:use(project).path .. BASE .. "application.yaml"))
     local want, got = p6m.empty.resource_requirements(s), app.spec.resourceRequirements or {}
     t:expect(#got, "requirement count"):equals(#want)
     t:expect_all(function()
@@ -892,10 +883,10 @@ function p6m.empty.standards.manifests(g, project, s)
       for _, env in ipairs(p6m.empty.ENVIRONMENTS) do
         local ns = p6m.empty.namespace(s, env)
         local dir = root .. "/.platform/kubernetes/" .. env .. "/"
-        local kust = yaml_decode(fs.read(dir .. "kustomization.yaml"))
+        local kust = yaml.decode(fs.read(dir .. "kustomization.yaml"))
         t:expect(kust.kind, env .. " kustomization kind"):equals("Kustomization")
         t:expect(kust.namespace, env .. " kustomization namespace"):equals(ns)
-        t:expect(yaml_decode(fs.read(dir .. "namespace.yaml")).metadata.name, env .. " Namespace"):equals(ns)
+        t:expect(yaml.decode(fs.read(dir .. "namespace.yaml")).metadata.name, env .. " Namespace"):equals(ns)
       end
     end)
   end)
@@ -912,7 +903,7 @@ function p6m.empty.standards.cicd(g, project, s, opts)
   local cd_spec = opts and opts.cd_spec
 
   local function workflow(t)
-    return yaml_decode(fs.read(t:use(project).path .. "/.github/workflows/build.yaml"))
+    return yaml.decode(fs.read(t:use(project).path .. "/.github/workflows/build.yaml"))
   end
 
   -- Named steps are found by the action they use, so a renamed step never silently stops being
@@ -968,7 +959,7 @@ function p6m.empty.standards.cicd(g, project, s, opts)
   end)
 
   g:test("the dev overlay renames the same image repository the manifest deploys", function(t)
-    local kust = yaml_decode(
+    local kust = yaml.decode(
       fs.read(t:use(project).path .. "/.platform/kubernetes/dev/kustomization.yaml")
     )
     local names = {}
@@ -984,7 +975,7 @@ function p6m.empty.standards.cicd(g, project, s, opts)
     local root = t:use(project).path
     t:expect_all(function()
       for _, wf in ipairs(fs.glob(root, ".github/workflows/*.yaml")) do
-        local doc = yaml_decode(fs.read(wf))
+        local doc = yaml.decode(fs.read(wf))
         for job_name, job in pairs(doc.jobs) do
           for _, step in ipairs(job.steps or {}) do
             if step.uses then
@@ -1030,7 +1021,7 @@ function p6m.empty.standards.prompt_surface(g, s, opts)
       "platform-application-manifests",
       s.language .. "-ci",
     })
-    local manifest = yaml_decode(fs.read((opts.root or ".") .. "/archetype.yaml"))
+    local manifest = yaml.decode(fs.read((opts.root or ".") .. "/archetype.yaml"))
     t:expect_all(function()
       for name in pairs(manifest.catalog or {}) do
         t:expect(allowed[name], "composed library `" .. name .. "`"):is_true()
@@ -1125,7 +1116,7 @@ function p6m.empty.standards.hygiene(g, opts)
   local root = opts.root or "."
 
   g:test("the suite is configured on the keys prova reads", function(t)
-    local manifest = toml_decode(fs.read(root .. "/prova.toml"))
+    local manifest = toml.decode(fs.read(root .. "/prova.toml"))
     t:expect(manifest.run and manifest.run.proofs, "[run] proofs (S9: `paths` is dead in ≥0.7)")
       :never():is_nil()
     t:expect(manifest.plugins and manifest.plugins.p6m, "[plugins] p6m"):never():is_nil()
@@ -1147,7 +1138,7 @@ function p6m.empty.standards.hygiene(g, opts)
   end)
 
   g:test("the p6m plugin is pinned to a released tag", { spec = opts.pin_spec }, function(t)
-    local pin = toml_decode(fs.read(root .. "/prova.toml")).plugins.p6m
+    local pin = toml.decode(fs.read(root .. "/prova.toml")).plugins.p6m
     t:expect(type(pin) == "string" and pin or "", "the pin is a source string"):matches("@v%d")
   end)
 
@@ -1155,7 +1146,7 @@ function p6m.empty.standards.hygiene(g, opts)
     proves = "E7: an overlay suite renders and inspects, so a runner needs nothing but prova —"
       .. " a language setup step here is a claim about a project that was never generated",
   }, function(t)
-    local wf = yaml_decode(fs.read(root .. "/.github/workflows/acceptance.yaml"))
+    local wf = yaml.decode(fs.read(root .. "/.github/workflows/acceptance.yaml"))
     local prova_step
     t:expect_all(function()
       for _, job in pairs(wf.jobs) do
@@ -1172,24 +1163,28 @@ function p6m.empty.standards.hygiene(g, opts)
     t:expect(prova_step, "a prova-rs/run-action@v… step"):never():is_nil()
   end)
 
-  g:test("acceptance CI pins the prova version the suite is authored against", {
-    proves = "E7: run-action's `version` input defaults to a fixed release that goes stale as prova"
-      .. " moves, so inheriting it silently runs the suite on an engine it was never written for."
-      .. " Measured 2026-07-27: the default was v0.10.0, where `toml` does not exist and yaml"
-      .. " decoding is still named yaml.parse — every proof reading a manifest or a workflow died"
-      .. " on a nil global in CI while passing locally on 0.11.",
+  g:test("acceptance CI tracks run-action@v1 rather than pinning an engine version", {
+    proves = "E7: the engine version belongs in run-action, which is bumped on every prova release"
+      .. " (automatically, since 2026-07-28), so tracking the tag is what keeps a suite on the engine"
+      .. " the fleet runs. A local `version:` silently freezes it — and is invisible next to a tag"
+      .. " that still looks current. This assertion previously REQUIRED such a pin, which is how"
+      .. " these six ended up frozen on v0.11.0 while run-action@v1 already served v0.14.0, across a"
+      .. " breaking deserializer rename.",
   }, function(t)
-    local wf = yaml_decode(fs.read(root .. "/.github/workflows/acceptance.yaml"))
-    local pinned
-    for _, job in pairs(wf.jobs) do
-      for _, step in ipairs(job.steps or {}) do
-        if step.uses and step.uses:find("^prova%-rs/run%-action@v") then
-          pinned = step["with"] and step["with"].version
+    local wf = yaml.decode(fs.read(root .. "/.github/workflows/acceptance.yaml"))
+    local found = false
+    t:expect_all(function()
+      for _, job in pairs(wf.jobs) do
+        for _, step in ipairs(job.steps or {}) do
+          if step.uses and step.uses:find("^prova%-rs/run%-action@") then
+            found = true
+            t:expect(step.uses, "tracks the v1 tag"):equals("prova-rs/run-action@v1")
+            t:expect(step["with"] and step["with"].version, "no local engine pin"):is_nil()
+          end
         end
       end
-    end
-    t:expect(pinned, "an explicit `version:` on the run-action step"):never():is_nil()
-    t:expect(tostring(pinned), "a released prova version"):matches("^v%d+%.%d+")
+      t:expect(found, "a prova-rs/run-action step"):is_true()
+    end)
   end)
 end
 
