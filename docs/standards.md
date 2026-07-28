@@ -10,22 +10,35 @@ Source of truth for the platform contract is `platform-application-manifests-lib
 platform actually probes and injects), plus the survey of all 80 repos on 2026-07-22 (summarized
 in the matrix below).
 
-## 1. The current drift (why this exists)
+## 1. The original drift (why this exists) — a HISTORICAL SNAPSHOT
 
-Survey highlights, per axis — every one of these is a proof in the suite:
+> **This table is dated 2026-07-22 and is not maintained.** It records the survey that motivated
+> these standards. It is **not** a status board, and several rows are now false.
+>
+> **For current status, read the S-section for that axis**, or run the suite — which is the whole
+> point: the proofs are the live answer, and prose about compliance goes stale by construction.
+>
+> This is not a hypothetical failure mode. On 2026-07-27 this table's CI row was read as current and
+> produced two wrong conclusions in a row: that java and rust still needed CD work (both had been
+> converged for days), which led to a duplicate of a fix that had already merged weeks earlier. A
+> stale local checkout independently reproduced the same wrong answer. **Verify against the org's
+> `dev` branch, or against a suite run — never against this table or a working copy.**
 
-| Axis | State on dev (2026-07-22) |
-|---|---|
-| CRUD | dotnet + typescript + python(grpc): full 5 ops. rust grpc: no Delete. rust rest: List only. rust graphql: no update/delete. golang: Create/Get/List only — and grpc/graphql APIs are **not even mounted** (commented-out TODO). java: **health-only on all three transports**; java-rest has zero routes. |
-| API naming | REST: dotnet/python/typescript hard-code `Item`/`/api/items` (service name never reaches the API); golang uses `/api/v1/{prefix_name}s`; rust uses `/{prefix-name}s`. gRPC rpc names: `Create{PrefixName}` everywhere it exists, but service naming and versioning differ (`package {prefix}_{suffix}` vs `{prefix}.{suffix}.v1`). GraphQL: typescript/dotnet name the type `{PrefixName}{SuffixName}`, rust/python/golang use `{PrefixName}`; typescript keeps `get`/`list` prefixes, dotnet (HotChocolate) strips `get`. |
-| Env contract | Manifests inject `SERVER_PORT`/`GRPC_PORT`, `MANAGEMENT_PORT`, `LOGGING_STRUCTURED=true`. golang binds `PORT` (not SERVER_PORT). rust binds `APP_SERVER__PORT` (figment prefix — ignores the platform's vars entirely). java grpc collapses the management server onto the service port. |
-| Structured logging | Honored by dotnet/golang/java/python/rust; **typescript defines `LOGGING_STRUCTURED` but never reads it** (pino always JSON). Default off in python. |
-| Health | `/health/readiness` + `/health/liveness` on the management port everywhere — the one converged axis. But manifests wire **only readinessProbe**; liveness is implemented and never probed. Readiness is a static `ok` in most (rust grpc has a real gate). |
-| Metrics | Real Prometheus output in five languages; **rust `/metrics` is a stub string**. |
-| Traces | OTel fail-open in dotnet/python/rust/typescript; java disabled-by-default; **golang pins the OTel deps and never initializes them**. |
-| Docker | `.platform/docker/{local,prd}/Dockerfile` is the convention in all 30 service archetypes. But: **no `.dockerignore` anywhere** (+ `COPY . .`); local==prd byte-identical in java/python/rust; golang templates `COPY go.sum` with no go.sum (clean build fails); java Dockerfiles call a `./mvnw` that is never rendered; only dotnet-rest's suite ever builds an image. |
-| Prova | golang + rust: **no suites at all**. Everywhere else: `[run] paths = ["tests"]` — a key prova ≥0.7 does not read (dead config); plugins pinned `@main`. dotnet-graphql has a tracked `.last-failed.json` showing red. python-basic has an in-flight branch **replacing prova with the legacy pytest harness** (YP6M-3006 — needs an org decision before the sweep). |
-| CI | Rendered-project CI: dotnet/python/typescript get build→docker→push→manifest-dispatch; **golang/java/rust build only** (no image, no CD). golang uses community actions instead of `p6m-actions/*`. |
+Re-checked 2026-07-27 (`✅` verified resolved, `⚠️` partly resolved, `❔` not re-verified since the
+survey — the live suites are the authority for these):
+
+| Axis | State on dev (2026-07-22) | 2026-07-27 |
+|---|---|---|
+| CRUD | dotnet + typescript + python(grpc): full 5 ops. rust grpc: no Delete. rust rest: List only. rust graphql: no update/delete. golang: Create/Get/List only — and grpc/graphql APIs are **not even mounted** (commented-out TODO). java: **health-only on all three transports**; java-rest has zero routes. | ❔ S2 is the authority now |
+| API naming | REST: dotnet/python/typescript hard-code `Item`/`/api/items` (service name never reaches the API); golang uses `/api/v1/{prefix_name}s`; rust uses `/{prefix-name}s`. gRPC rpc names: `Create{PrefixName}` everywhere it exists, but service naming and versioning differ (`package {prefix}_{suffix}` vs `{prefix}.{suffix}.v1`). GraphQL: typescript/dotnet name the type `{PrefixName}{SuffixName}`, rust/python/golang use `{PrefixName}`; typescript keeps `get`/`list` prefixes, dotnet (HotChocolate) strips `get`. | ❔ S2 is the authority now |
+| Env contract | Manifests inject `SERVER_PORT`/`GRPC_PORT`, `MANAGEMENT_PORT`, `LOGGING_STRUCTURED=true`. golang binds `PORT` (not SERVER_PORT). rust binds `APP_SERVER__PORT` (figment prefix — ignores the platform's vars entirely). java grpc collapses the management server onto the service port. | ❔ S3 is the authority now |
+| Structured logging | Honored by dotnet/golang/java/python/rust; **typescript defines `LOGGING_STRUCTURED` but never reads it** (pino always JSON). Default off in python. | ✅ typescript reads the flag (`logging.ts` switches to pino-pretty when false) and passes the S4 ratchet on both variants. Note the ratchet itself only began holding at v1.8 — see S4. |
+| Health | `/health/readiness` + `/health/liveness` on the management port everywhere — the one converged axis. But manifests wire **only readinessProbe**; liveness is implemented and never probed. Readiness is a static `ok` in most (rust grpc has a real gate). | ❔ S5 is the authority now; the manifests still wire only readinessProbe |
+| Metrics | Real Prometheus output in five languages; **rust `/metrics` is a stub string**. | ✅ rust's `/metrics` is real: `metrics_exporter_prometheus::PrometheusBuilder` with a `PrometheusHandle` renderer, not a stub string |
+| Traces | OTel fail-open in dotnet/python/rust/typescript; java disabled-by-default; **golang pins the OTel deps and never initializes them**. | ❔ S7 is the authority now |
+| Docker | `.platform/docker/{local,prd}/Dockerfile` is the convention in all 30 service archetypes. But: **no `.dockerignore` anywhere** (+ `COPY . .`); local==prd byte-identical in java/python/rust; golang templates `COPY go.sum` with no go.sum (clean build fails); java Dockerfiles call a `./mvnw` that is never rendered; only dotnet-rest's suite ever builds an image. | ⚠️ `.dockerignore` now renders in 18 content trees; golang uses `COPY go.* ./`, which tolerates the absent go.sum; the `./mvnw` calls are gone (java-service-basic was the last, fixed 2026-07-27 — its image could not build at all). Still open: local==prd duplication, pending the S8 multi-stage end-state. No longer true that only dotnet-rest builds an image — the standards SUT builds the production image for every archetype carrying a suite. |
+| Prova | golang + rust: **no suites at all**. Everywhere else: `[run] paths = ["tests"]` — a key prova ≥0.7 does not read (dead config); plugins pinned `@main`. dotnet-graphql has a tracked `.last-failed.json` showing red. python-basic has an in-flight branch **replacing prova with the legacy pytest harness** (YP6M-3006 — needs an org decision before the sweep). | ✅ fully resolved: golang and rust have 4 prova packages each (28 fleet-wide), zero `[run] paths`, zero `@main` pins, zero tracked `.last-failed.json`. Generated LuaLS artifacts are now gitignored and asserted (S9). The YP6M-3006 pytest-harness question is unrelated and still open. |
+| CI | Rendered-project CI: dotnet/python/typescript get build→docker→push→manifest-dispatch; **golang/java/rust build only** (no image, no CD). golang uses community actions instead of `p6m-actions/*`. | ✅ all six render the full build→docker→push→manifest-dispatch pipeline on `p6m-actions/*`, audited against each ci-library's `dev`. golang was the last gap and needed three new actions — see S9. **This row is the one that misled; do not read it as current.** |
 
 ## 2. The standard
 
