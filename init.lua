@@ -647,6 +647,11 @@ function p6m.empty.spec(o)
     protocol = protocol,
     service_port = service_port,
     management_port = o.management_port or (service_port + 1),
+    -- E1b: how to build and run the EXISTING application. The overlay cannot guess these — a
+    -- retrofit target may be a single crate or a workspace, flat or multi-module, src/ layout or
+    -- not — so they are answers, defaulted to what each language's own service archetype produces.
+    build_command = o.build_command,
+    runtime_artifact = o.runtime_artifact,
     persistence = o.persistence or "None",
     cache = o.cache or "None",
     messaging = o.messaging or "None",
@@ -680,6 +685,8 @@ function p6m.empty.spec(o)
     cache = s.cache,
     messaging = s.messaging,
     messaging_access = s.messaging_access,
+    build_command = s.build_command,
+    runtime_artifact = s.runtime_artifact,
   }
 
   -- E3's allowlist for this archetype
@@ -797,6 +804,32 @@ function p6m.empty.standards.layout(g, project, s)
 
   g:test("leaves no unrendered template markers", function(t)
     t:expect(t:use(project)):is_fully_rendered()
+  end)
+
+  g:test("the container build is driven by the answers, not by an assumed layout", {
+    proves = "E1b: an overlay retrofits an EXISTING application, so a Dockerfile that hardcodes a"
+      .. " module name, a crate, a src/ layout or an output path only containerizes applications"
+      .. " already shaped like our own archetypes — which is the one thing a retrofit tool cannot"
+      .. " assume. Asserted with NON-DEFAULT values so it cannot pass by coincidence: the defaults"
+      .. " happen to equal what the greenfield archetypes produce.",
+  }, function(t)
+    if s.build_command == nil and s.runtime_artifact == nil then
+      t:skip("variant supplies neither build_command nor runtime_artifact")
+    end
+    local root = t:use(project).path
+    t:expect_all(function()
+      for _, kind in ipairs({ "prd", "local" }) do
+        local df = fs.read(root .. "/.platform/docker/" .. kind .. "/Dockerfile")
+        if s.build_command then
+          t:expect(df, kind .. " runs the answered build command"):contains(s.build_command)
+        end
+        if s.runtime_artifact then
+          t:expect(df, kind .. " uses the answered runtime artifact"):contains(s.runtime_artifact)
+        end
+        -- and copies the whole repo rather than naming parts of it
+        t:expect(df, kind .. " copies the repo wholesale"):matches("COPY %. %.")
+      end
+    end)
   end)
 end
 

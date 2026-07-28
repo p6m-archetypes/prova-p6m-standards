@@ -228,7 +228,29 @@ The tactical key, in full — three facts with no sane default, plus defaulted s
 | `protocol` (default REST) | `SERVER_PORT` vs `GRPC_PORT`, the manifest's port protocol |
 | `service_port`, `management_port` | manifest ports + config, `EXPOSE`, readiness probe |
 | `persistence`, `cache`, `messaging` (+ access) | manifest `resourceRequirements` |
+| `build_command` (defaulted) | the builder stage of both Dockerfiles |
+| `runtime_artifact` (defaulted) | what the runtime stage copies and runs |
 | `scm_provider` (default None) | the optional publish-the-repo step |
+
+### E1b — The container build is answered, never assumed (2026-07-27)
+An overlay retrofits an **existing** application, so its Dockerfile may not assume the application's
+internal shape. Every one of the six originally did: rust built `-p {app}_bin`, java `-pl
+{app}-server`, dotnet `{Pascal}/{Pascal}.csproj`, python a `src/` layout plus a console script,
+typescript `pnpm-workspace.yaml` and `dist/index.js`, golang `./cmd/server`. That containerizes
+applications already shaped like *our own archetypes* — the one thing a retrofit tool cannot take
+for granted.
+
+Two rules replace it:
+
+- **The builder copies the repo wholesale** (`COPY . .`) rather than naming parts of it, so no
+  layout is implied.
+- **`build_command` and `runtime_artifact` are answers**, defaulted to what that language's own p6m
+  service archetype produces. A greenfield-shaped repo therefore answers neither, and a legacy repo
+  overrides one line instead of rewriting a Dockerfile.
+
+Held by rendering with values unlike both the defaults and the greenfield output (`make build` →
+`bin/legacy-daemon`) and asserting they reach both Dockerfiles — the defaults equal the greenfield
+shape, so a coincidence-proof variant is the only honest way to test this.
 
 Corollary held by the same suite: the archetype's `archetype.yaml` catalog may compose only
 libraries whose prompts survive that table — which is how a *defaulted* vestigial prompt
