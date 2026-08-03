@@ -1119,7 +1119,7 @@ function p6m.empty.standards.hygiene(g, opts)
     local manifest = toml.decode(fs.read(root .. "/prova.toml"))
     t:expect(manifest.run and manifest.run.proofs, "[run] proofs (S9: `paths` is dead in ≥0.7)")
       :never():is_nil()
-    t:expect(manifest.plugins and manifest.plugins.p6m, "[plugins] p6m"):never():is_nil()
+    t:expect(manifest.plugins and manifest.plugins.p6m, "[dependencies] p6m"):never():is_nil()
   end)
 
   g:test("prova's own generated artifacts are gitignored, not committed", {
