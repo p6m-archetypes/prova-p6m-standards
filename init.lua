@@ -923,14 +923,14 @@ function p6m.empty.standards.cicd(g, project, s, opts)
     t:expect(build.jobs and build.jobs.build, "a `build` job"):never():is_nil()
   end)
 
-  g:test("the build workflow names the application as its image", { spec = cd_spec }, function(t)
+  g:test("the build workflow names the application as its image", { promises = cd_spec }, function(t)
     local env = workflow(t).env or {}
     t:expect(env.IMAGE_NAME, "IMAGE_NAME"):equals(s.application)
     t:expect(env.APPLICATION_NAME, "APPLICATION_NAME"):equals(s.application)
   end)
 
   g:test("the workflow's dockerfile-path names a Dockerfile the overlay rendered", {
-    spec = cd_spec,
+    promises = cd_spec,
     proves = cd_spec == nil
       and "E5: the publish step and the container build are two artifacts; CD dies on the seam"
       or nil,
@@ -943,7 +943,7 @@ function p6m.empty.standards.cicd(g, project, s, opts)
   end)
 
   g:test("the manifest-dispatch directory is the application name", {
-    spec = cd_spec,
+    promises = cd_spec,
     proves = cd_spec == nil
       and "E5: directory-name is the path CD writes into in the manifests repo — a mismatch means"
         .. " the pipeline is green and the deployment never updates"
@@ -1093,7 +1093,7 @@ function p6m.empty.standards.retrofit(g, s, opts)
   end)
 
   g:test("leaves the application's own hygiene files alone", {
-    spec = "E4: the app's ignores and formatting rules outrank ours. The archetect CLI already"
+    promises = "E4: the app's ignores and formatting rules outrank ours. The archetect CLI already"
       .. " skips an existing path, but prova's in-process engine overwrites, so this cannot be"
       .. " held from a proof yet — it needs the engines to agree (or the gitignore/editor-config"
       .. " libraries to merge rather than replace). YP6M-3172",
@@ -1119,7 +1119,7 @@ function p6m.empty.standards.hygiene(g, opts)
     local manifest = toml.decode(fs.read(root .. "/prova.toml"))
     t:expect(manifest.run and manifest.run.proofs, "[run] proofs (S9: `paths` is dead in ≥0.7)")
       :never():is_nil()
-    t:expect(manifest.plugins and manifest.plugins.p6m, "[dependencies] p6m"):never():is_nil()
+    t:expect(manifest.dependencies and manifest.dependencies.p6m, "[dependencies] p6m"):never():is_nil()
   end)
 
   g:test("prova's own generated artifacts are gitignored, not committed", {
@@ -1137,8 +1137,8 @@ function p6m.empty.standards.hygiene(g, opts)
     end)
   end)
 
-  g:test("the p6m plugin is pinned to a released tag", { spec = opts.pin_spec }, function(t)
-    local pin = toml.decode(fs.read(root .. "/prova.toml")).plugins.p6m
+  g:test("the p6m plugin is pinned to a released tag", { promises = opts.pin_spec }, function(t)
+    local pin = toml.decode(fs.read(root .. "/prova.toml")).dependencies.p6m
     t:expect(type(pin) == "string" and pin or "", "the pin is a source string"):matches("@v%d")
   end)
 
