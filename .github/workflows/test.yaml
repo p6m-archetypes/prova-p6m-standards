@@ -22,9 +22,9 @@ jobs:
           # Pin the engine, per E7 — the action's own default goes stale as prova moves, and this
           # plugin is where the parse/decode skew between a release and a source build is bridged,
           # so it is the last place that should be guessing which engine it is running on.
-          version: v0.11.0
+          version: v0.16.1
 
       # prova is now on PATH — check the plugin conforms to the namespacing grammar.
       - name: Lint the plugin
-        run: prova plugin lint init.lua
+        run: prova package lint init.lua
 
