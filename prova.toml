@@ -7,8 +7,10 @@ description = "p6m platform standards as executable proofs — one parameterized
 license     = "MIT"
 
 # The range of prova versions this package is built against; a consumer is checked against it.
+# 0.19 is the floor because E4 ("leaves the application's own hygiene files alone") holds only
+# once the in-proof render engine honors the if_exists policy — prova v0.19.0.
 [requires]
-prova = ">= 0.16"
+prova = ">= 0.19"
 
 # Resolve THIS package from its own directory, so the self-tests can `require("p6m")` exactly as
 

@@ -723,14 +723,15 @@ function p6m.empty.resource_requirements(s)
 end
 
 --- The shared render fixture: one headless render of the overlay per spec, with `defaults = false`
---- so a prompt outside the tactical key errors instead of being papered over (E2). Scope.Suite by
---- default — the composed prompt libraries all resolve from git, and a suite's worth of renders
---- sharing one tree is both faster and what `[run] jobs = 1` already implies.
+--- so a prompt outside the tactical key errors instead of being papered over (E2). Scope.File by
+--- default — every consumer today is a single-file suite, where Scope.Suite degrades to file scope
+--- with a warning on every run. A consumer that grows a suite.lua and wants one render shared
+--- across its files opts in with `scope = Scope.Suite`.
 ---@param s table a `p6m.empty.spec` result
 ---@param opts { source: string?, scope: any?, answers: table? }?
 function p6m.empty.render(s, opts)
   opts = opts or {}
-  return prova.fixture(s.label .. ":project", opts.scope or Scope.Suite, function(ctx)
+  return prova.fixture(s.label .. ":project", opts.scope or Scope.File, function(ctx)
     return archetect.render{
       source = opts.source or ".",
       answers = opts.answers or s.answers,
@@ -1093,10 +1094,10 @@ function p6m.empty.standards.retrofit(g, s, opts)
   end)
 
   g:test("leaves the application's own hygiene files alone", {
-    promises = "E4: the app's ignores and formatting rules outrank ours. The archetect CLI already"
-      .. " skips an existing path, but prova's in-process engine overwrites, so this cannot be"
-      .. " held from a proof yet — it needs the engines to agree (or the gitignore/editor-config"
-      .. " libraries to merge rather than replace). YP6M-3172",
+    proves = "E4: the app's ignores and formatting rules outrank ours. The archetect CLI always"
+      .. " skipped an existing path; prova's in-process engine clobbered it until the headless"
+      .. " driver learned to honor the render's if_exists policy (prova v0.19.0 — the [requires]"
+      .. " floor). The engines agree now, so the bar holds from a proof. YP6M-3172",
   }, function(t)
     local dest = retrofit(t, hygiene)
     t:expect_all(function()
