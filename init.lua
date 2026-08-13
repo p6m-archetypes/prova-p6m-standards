@@ -1108,10 +1108,11 @@ function p6m.empty.standards.retrofit(g, s, opts)
   end)
 end
 
---- E7: the archetype repo's own suite and CI hygiene. `opts.pin_spec`, when given, authors the
---- released-tag assertion as an open spec with that reason — for the window between a standards
---- change landing on dev and the release that lets consumers pin it.
----@param opts { root: string?, pin_spec: string? }?
+--- E7: the archetype repo's own suite and CI hygiene. The released-tag bar is a REMINDER, not a
+--- test (see below), so a fleet iterating the standards on `dev` stays green while the pin owes
+--- attention; `--heed=p6m-pin` (or a profile's `heed = ["p6m-pin"]`) enforces it when the
+--- iteration window closes.
+---@param opts { root: string? }?
 function p6m.empty.standards.hygiene(g, opts)
   opts = opts or {}
   local root = opts.root or "."
@@ -1138,10 +1139,8 @@ function p6m.empty.standards.hygiene(g, opts)
     end)
   end)
 
-  g:test("the p6m plugin is pinned to a released tag", { promises = opts.pin_spec }, function(t)
-    local pin = toml.decode(fs.read(root .. "/prova.toml")).dependencies.p6m
-    t:expect(type(pin) == "string" and pin or "", "the pin is a source string"):matches("@v%d")
-  end)
+  -- E7's released-tag bar is NOT a test here: it is the `p6m-pin` REMINDER, declared at file
+  -- root via `p6m.pin_reminder()` (a reminder registers outside any group).
 
   g:test("acceptance CI runs the suite on prova-rs/run-action, with no toolchain", {
     proves = "E7: an overlay suite renders and inspects, so a runner needs nothing but prova —"
@@ -1201,10 +1200,41 @@ end
 
 --- Everything that is a property of the ARCHETYPE REPO rather than of a variant (E2, E7): invoke
 --- once, whatever the variant count.
----@param opts { source: string?, root: string?, catalog: string[]?, pin_spec: string? }?
+---@param opts { source: string?, root: string?, catalog: string[]? }?
 function p6m.empty.standards.archetype(g, s, opts)
   p6m.empty.standards.prompt_surface(g, s, opts)
   p6m.empty.standards.hygiene(g, opts)
+end
+
+--- E7's released-tag bar, as a standing REMINDER — an obligation the world creates, not a defect
+--- in the change under test: iterating the standards on `dev` is a sanctioned state while the
+--- studio staging settles, so a moving pin owes ATTENTION, never a red run. DUE while
+--- [dependencies] p6m rides a branch, path, or untagged git source; silent again the moment the
+--- pin returns to a released tag — the repin IS the discharge. A lane that promises the bar
+--- heeds it by name or tag (`--heed=p6m-pin`, or `heed = ["p6m-pin"]` on a profile).
+---
+--- A reminder registers at the FILE ROOT (never inside a group body): call this once, beside —
+--- not within — the `prova.group` that holds the archetype's other repo-level standards.
+---@param opts { root: string? }?
+function p6m.pin_reminder(opts)
+  local root = (opts or {}).root or "."
+  prova.remind("the p6m standards return to a released tag", {
+    tags = { "p6m-pin" },
+    when = function()
+      local pin = toml.decode(fs.read(root .. "/prova.toml")).dependencies.p6m
+      if type(pin) == "string" then
+        return not pin:match("@v%d") and ("the pin is `" .. pin .. "` — not a released @vN")
+      end
+      if type(pin) == "table" then
+        if pin.tag then return false end
+        local ref = pin.branch and ('branch = "' .. pin.branch .. '"')
+          or pin.path and ('path = "' .. pin.path .. '"')
+          or "an untagged git source"
+        return "the pin rides " .. ref .. " — sanctioned while the studio staging settles (YP6M-3372)"
+      end
+      return "no [dependencies] p6m pin found"
+    end,
+  }, "repin [dependencies] p6m to the released tag (p6m-archetypes/prova-p6m-standards@vN)")
 end
 
 -- ── The standards suites ────────────────────────────────────────────────────────────────────────

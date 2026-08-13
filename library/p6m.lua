@@ -203,10 +203,11 @@ function p6m.empty.standards.prompt_surface(g, s, opts) end
 ---@param opts { source: string?, legacy: table<string,string>?, hygiene: table<string,string>? }?
 function p6m.empty.standards.retrofit(g, s, opts) end
 
---- E7: the archetype repo's own suite + CI hygiene. `opts.pin_spec` authors the released-tag
---- assertion as an open spec with that reason.
+--- E7: the archetype repo's own suite + CI hygiene. The released-tag bar is a standing REMINDER
+--- (tag `p6m-pin`): DUE while the p6m pin rides a moving ref, silent on a released tag; heed it
+--- (`--heed=p6m-pin`) when the iteration window closes.
 ---@param g any
----@param opts { root: string?, pin_spec: string? }?
+---@param opts { root: string? }?
 function p6m.empty.standards.hygiene(g, opts) end
 
 --- Everything that is a function of ONE answer set (E3–E6): invoke per variant.
@@ -221,7 +222,12 @@ function p6m.empty.standards.rendering(g, project, s, opts) end
 --- once, whatever the variant count.
 ---@param g any
 ---@param s p6m.OverlaySpec
----@param opts { source: string?, root: string?, catalog: string[]?, pin_spec: string? }?
+---@param opts { source: string?, root: string?, catalog: string[]? }?
 function p6m.empty.standards.archetype(g, s, opts) end
+
+--- E7's released-tag bar as a standing REMINDER (tag `p6m-pin`): DUE while the p6m pin rides a
+--- moving ref, silent on a released tag. Call once at FILE ROOT, beside — never inside — a group.
+---@param opts { root: string? }?
+function p6m.pin_reminder(opts) end
 
 return p6m
