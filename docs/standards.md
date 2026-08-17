@@ -136,9 +136,16 @@ rendered project's CI, not to the archetype's suite.
 ### S9 — Suite and CI hygiene
 `prova.toml` uses `[run] proofs = [...]` (prova ≥0.7), plugins pinned to released tags
 (`prova-rs/prova-postgres@v1` etc. — released 2026-07-22), `acceptance.yaml` on
-`run-action@v1` **with an explicit `version:`** (its default release goes stale as prova moves —
-see §2b E7), `.last-failed.json` gitignored. Rendered-project CI: all six languages get the full
-build→docker→push→manifest-dispatch pipeline on `p6m-actions/*`.
+`prova-rs/run-action@v1` **with no local `version:`** (§2b E7), `.last-failed.json` gitignored.
+Rendered-project CI: all six languages get the full build→docker→push→manifest-dispatch pipeline
+on `p6m-actions/*`.
+
+> **Corrected 2026-08-17 (YP6M-3424).** This line used to require the opposite — an *explicit*
+> `version:` — while E7's proof has forbidden one since v1.10. The proof was right and the prose
+> was stale, so a reader following S9 would have written a workflow its own suite rejects. The
+> engine version belongs in `run-action`, which is bumped on every prova release; a local pin
+> freezes the suite while looking current, which is exactly how six overlay repos sat on v0.11.0
+> while the fleet ran v0.14.0.
 
 Status (2026-07-27): **this axis is closed — all six languages render the full pipeline.** Audited
 directly against each `*-ci-library`'s `dev` on that date: every one has cut-tag, image publish and
@@ -338,6 +345,13 @@ As S9, for these repos: `[run] proofs = [...]`, the `p6m` plugin declared and pi
 released tag, `.last-failed.json` gitignored, `acceptance.yaml` on `prova-rs/run-action@v1`, and
 no language toolchain step in that workflow — an overlay suite renders and inspects, so a
 runner needs nothing but prova.
+
+**Tracking `run-action@v1` is the rule, not a default to override.** The step carries no local
+`version:`: the engine version lives in the action, which is bumped on every prova release, so
+tracking the tag is what keeps a suite on the engine the fleet runs. A local pin freezes it while
+looking up to date — measured, these six sat on v0.11.0 across three engine releases while
+`run-action@v1` already served v0.14.0. Held by a proof (v1.10+), which is why S9's contradicting
+line was corrected rather than the workflows.
 
 ## 3. The plugin: `prova-p6m-standards` (require name `p6m`)
 
