@@ -19,3 +19,12 @@ prova = ">= 0.19"
 
 [dependencies]
 p6m = { path = "." }
+
+# The prose layer. docs/standards.md states each standard under a claim anchor; a proof binds to
+# one with `covers = "docs/standards.md#<id>"`, which is what lets a consumer ask the sharpest
+# available question of an upstream obligation — `prova attest docs/standards.md#<id>`: did the
+# proof covering this claim actually execute and pass in the recorded run? Prose alone cannot
+# satisfy it, and neither can a suite that skipped the proof.
+[[specs.source]]
+type = "directory"
+path = "docs/standards.md"

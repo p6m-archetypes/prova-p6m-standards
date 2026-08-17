@@ -6,8 +6,9 @@
 -- function of the ANSWER KEY given to the archetype — never of the language.
 --
 --   local p6m = require("p6m")
---   local id  = p6m.identity{ prefix = "User Details", suffix = "Service" }
---   id.PrefixName        -- "UserDetails"
+--   local id  = p6m.identity{ project = "user-details-service", entity = "user-details" }
+--   id.ProjectName       -- "UserDetailsService"  (repo, image, gRPC service)
+--   id.EntityName        -- "UserDetails"         (the CRUD subject)
 --   p6m.api.rest_surface(id).base   -- "/api/v1/user-detailss"
 --
 -- Layered so the hermetic core (identity + api surfaces) needs nothing but Lua; the live layers
@@ -51,34 +52,78 @@ local function joined(ws, sep)
   return table.concat(ws, sep)
 end
 
---- The full identity derived from an answer key: every cased variant the standards reference.
---- `spec.prefix` is required; `spec.suffix` defaults to "Service" (the archetypes' default).
----@param spec { prefix: string, suffix: string?, org: string?, solution: string? }
+--- The identity every standard is stated in terms of (S1): every cased variant of the two names
+--- an archetype is answered with, and nothing else.
+---
+--- THE ORACLE TAKES; IT DOES NOT DERIVE. `project` and `entity` are both explicit inputs, because
+--- the p6m identity surface has exactly one implementation — `p6m-identity-library`, which owns
+--- the rule that defaults an entity off a project name — and a prompt library and an oracle that
+--- each derive the same names is a drift machine. Pass this the SAME values you answered the
+--- render with; `p6m.spec{}`-style shape harnesses do that structurally, which is why a suite
+--- should build its identity through one rather than by hand.
+---
+--- `entity` therefore defaults to `project` rather than re-implementing the strip: an omitted
+--- entity means "this shape has no domain entity" (the overlay and basic archetypes), never
+--- "guess what the library would have done".
+---
+--- Casing is archetect's own inflection engine by way of `prova.str`, so a name cased here and a
+--- name cased by a template agree by construction.
+---
+---@param spec { project: string, entity: string?, solution: string? }
 function p6m.identity(spec)
-  assert(type(spec) == "table" and spec.prefix, "p6m.identity requires { prefix = ... }")
-  local pre, suf = tokens(spec.prefix), tokens(spec.suffix or "Service")
+  assert(type(spec) == "table" and spec.project,
+    "p6m.identity requires { project = ... } — the project name the archetype was answered with")
+  assert(spec.prefix == nil and spec.suffix == nil,
+    "p6m.identity no longer takes prefix/suffix (S1, YP6M-3424): pass { project = \"billing-service\""
+    .. ", entity = \"billing\" }. prefix x suffix was one name doing two jobs — the project name and"
+    .. " the CRUD entity — and they are separate answers now.")
+
+  local proj = tokens(spec.project)
+  local ent = tokens(spec.entity or spec.project)
 
   local id = {
-    -- the raw answers, echoed for round-tripping into archetect renders
-    answers = { prefix_name = spec.prefix, suffix_name = spec.suffix or "Service" },
+    -- The raw answers, echoed so a suite can round-trip them straight into an archetect render
+    -- without restating them — the render and the expectation then cannot disagree.
+    answers = {
+      project_name = spec.project,
+      entity_name = spec.entity or spec.project,
+    },
 
-    PrefixName = pascal(pre),
-    SuffixName = pascal(suf),
-    prefix_name = joined(pre, "_"),
-    suffix_name = joined(suf, "_"),
-    prefixName = camel(pre),
+    -- The project: repo, directory, container image, PlatformApplication, Tilt resource,
+    -- OTEL_SERVICE_NAME, and the gRPC service name.
+    --
+    -- NOTE the spelling trap: `project_name` here is KEBAB, because that is what the repo and
+    -- image are actually called. Archetect's key of the same name expands to SNAKE. The snake form
+    -- is `project_snake` — never reach for `project_name` expecting `billing_service`.
+    project_name = joined(proj, "-"),
+    project_snake = joined(proj, "_"),
+    ProjectName = pascal(proj),
+    projectName = camel(proj),
 
-    -- kebab forms; project_name is `<prefix>-<suffix>` — the repo/dir/image/OTel name
-    prefix_kebab = joined(pre, "-"),
-    suffix_kebab = joined(suf, "-"),
+    -- The entity: the CRUD subject. S2 fixes it as entity-named, not service-named — a
+    -- `billing-service` exposes `/api/v1/billings`, type `Billing`, rpc `CreateBilling`.
+    entity_name = joined(ent, "-"),
+    entity_snake = joined(ent, "_"),
+    EntityName = pascal(ent),
+    entityName = camel(ent),
   }
-  id.PascalFull = id.PrefixName .. id.SuffixName
-  id.snake_full = id.prefix_name .. "_" .. id.suffix_name
-  id.project_name = id.prefix_kebab .. "-" .. id.suffix_kebab
 
-  if spec.org and spec.solution then
-    id.org_solution = joined(tokens(spec.org), "-") .. "-" .. joined(tokens(spec.solution), "-")
+  if spec.solution then
+    id.solution = joined(tokens(spec.solution), "-")
   end
+
+  -- ── Retiring vocabulary (YP6M-3424) ───────────────────────────────────────────────────────────
+  -- Twenty-one hand-rolled suites still read these. They are ALIASES of the fields above, computed
+  -- once from one input — a rename with a transition window, not a second derivation. They go with
+  -- the last suite that reads them, which is the shape-harness work; the reminder below carries it.
+  id.PrefixName  = id.EntityName
+  id.prefixName  = id.entityName
+  id.prefix_kebab = id.entity_name
+  id.prefix_name = id.entity_snake
+  id.PascalFull  = id.ProjectName
+  id.snake_full  = id.project_snake
+  id.org_solution = id.solution
+
   return id
 end
 
@@ -101,12 +146,12 @@ p6m.api = {}
 --- full CRUD rpcs named from the entity (`{PrefixName}`), naive-plural List. `messages` pins the
 --- request/response shapes — the drift the survey found lives there as much as in rpc names.
 function p6m.api.grpc_surface(id)
-  local P = id.PrefixName
+  local P = id.EntityName
   return {
-    package = id.snake_full,
-    service = id.PascalFull,
+    package = id.project_snake,
+    service = id.ProjectName,
     -- fully-qualified name as reflection reports it
-    full_service = id.snake_full .. "." .. id.PascalFull,
+    full_service = id.project_snake .. "." .. id.ProjectName,
     rpcs = {
       "Create" .. P,
       "Get" .. P,
@@ -131,7 +176,7 @@ end
 
 --- Expected REST surface: `/api/v1/{prefix-name}s`, five routes with standard status semantics.
 function p6m.api.rest_surface(id)
-  local base = "/api/v1/" .. id.prefix_kebab .. "s"
+  local base = "/api/v1/" .. id.entity_name .. "s"
   return {
     base = base,
     routes = {
@@ -148,7 +193,7 @@ end
 --- Expected GraphQL surface: entity-named type `{PrefixName}`, prefix-free query fields,
 --- create/update/delete mutations. Served at /graphql on the service port.
 function p6m.api.graphql_surface(id)
-  local P, c = id.PrefixName, id.prefixName
+  local P, c = id.EntityName, id.entityName
   return {
     type_name = P,
     queries = { c, c .. "s" },

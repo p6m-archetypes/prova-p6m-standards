@@ -5,24 +5,35 @@
 --- and ships nothing at runtime. Keep it in sync with init.lua's public API as the plugin grows.
 
 ---@class p6m.Identity
----@field answers { prefix_name: string, suffix_name: string } the raw answer key, for renders
----@field PrefixName string   # "UserDetails"
----@field SuffixName string   # "Service"
----@field prefix_name string  # "user_details"
----@field suffix_name string  # "service"
----@field prefixName string   # "userDetails"
----@field prefix_kebab string # "user-details"
----@field suffix_kebab string # "service"
----@field PascalFull string   # "UserDetailsService"
----@field snake_full string   # "user_details_service"
----@field project_name string # "user-details-service"
----@field org_solution string? # "acme-platform" (when org+solution given)
+---@field answers { project_name: string, entity_name: string } the raw answer key, for renders
+--- The project — repo, directory, image, PlatformApplication, gRPC service.
+--- NOTE `project_name` is KEBAB here (what the repo is actually called); archetect's key of the
+--- same name expands to snake. The snake form is `project_snake`.
+---@field project_name string  # "user-details-service"
+---@field project_snake string # "user_details_service"
+---@field ProjectName string   # "UserDetailsService"
+---@field projectName string   # "userDetailsService"
+--- The entity — the CRUD subject. S2: entity-named, not service-named.
+---@field entity_name string   # "user-details"
+---@field entity_snake string  # "user_details"
+---@field EntityName string    # "UserDetails"
+---@field entityName string    # "userDetails"
+---@field solution string?     # "acme-platform" (when a solution is given)
+--- Retiring aliases of the fields above (YP6M-3424) — kept while the hand-rolled suites convert
+--- onto the shape harnesses. Same values, one derivation; do not author against them.
+---@field PrefixName string    # deprecated → EntityName
+---@field prefixName string    # deprecated → entityName
+---@field prefix_kebab string  # deprecated → entity_name
+---@field prefix_name string   # deprecated → entity_snake
+---@field PascalFull string    # deprecated → ProjectName
+---@field snake_full string    # deprecated → project_snake
+---@field org_solution string? # deprecated → solution
 
 ---@class p6m.GrpcSurface
----@field package string      # flat "{prefix}_{suffix}"
----@field service string      # "{PrefixName}{SuffixName}"
+---@field package string      # flat "{project_snake}"
+---@field service string      # "{ProjectName}"
 ---@field full_service string # "package.Service" as reflection reports it
----@field rpcs string[]       # Create/Get/List…s/Update/Delete {PrefixName}
+---@field rpcs string[]       # Create/Get/List…s/Update/Delete {EntityName}
 ---@field entity string
 ---@field entity_fields string[]
 
@@ -32,21 +43,23 @@
 ---@field status integer
 
 ---@class p6m.RestSurface
----@field base string         # "/api/v1/{prefix-name}s"
+---@field base string         # "/api/v1/{entity-name}s"
 ---@field routes p6m.RestRoute[]
 ---@field entity_fields string[]
 
 ---@class p6m.GraphqlSurface
----@field type_name string    # "{PrefixName}" (entity-named)
----@field queries string[]    # "{prefixName}", "{prefixName}s" — no get/list prefixes
----@field mutations string[]  # create/update/delete{PrefixName}
+---@field type_name string    # "{EntityName}" (entity-named)
+---@field queries string[]    # "{entityName}", "{entityName}s" — no get/list prefixes
+---@field mutations string[]  # create/update/delete{EntityName}
 ---@field entity_fields string[] # camelCase at the boundary
 
 local p6m = {}
 
---- The casing oracle: derive every cased variant the standards reference from an answer key.
---- `suffix` defaults to "Service". Accepts any input shape ("User Details", "user-details", …).
----@param spec { prefix: string, suffix: string?, org: string?, solution: string? }
+--- The identity oracle. TAKES the two names an archetype was answered with and cases them; it
+--- derives nothing — p6m-identity-library owns the one rule that defaults an entity off a project
+--- name, and two implementations of it would drift. `entity` omitted means the shape has no domain
+--- entity (overlay, basic), not "guess". Accepts any input shape ("User Details", "user-details").
+---@param spec { project: string, entity: string?, solution: string? }
 ---@return p6m.Identity
 function p6m.identity(spec) end
 

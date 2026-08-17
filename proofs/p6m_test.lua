@@ -2,45 +2,89 @@
 -- Always two name shapes — single-word ("Customer") and multi-word ("User Details") — because
 -- casing bugs only show on the second. Hermetic: no docker, no renders; this is the bar the
 -- oracle itself must always clear before any archetype is held to it.
+--
+-- S1 (YP6M-3424): the oracle TAKES `project` and `entity` and derives neither from the other.
+-- p6m-identity-library owns the rule that defaults an entity off a project name, and holds it in
+-- its own suite; re-deriving it here would be the second implementation that drifts. So every
+-- identity below passes both names explicitly — which is exactly what a suite must do.
 local p6m = require("p6m")
 
-prova.describe("identity: single-word (Customer)", function()
-	local id = p6m.identity{ prefix = "Customer" }
+prova.describe("identity: single-word (customer-service)", function()
+	local id = p6m.identity{ project = "customer-service", entity = "customer" }
 
-	prova.test("derives every cased variant", function(t)
-		t:expect(id.PrefixName):equals("Customer")
-		t:expect(id.SuffixName):equals("Service")
-		t:expect(id.prefix_name):equals("customer")
-		t:expect(id.prefixName):equals("customer")
-		t:expect(id.PascalFull):equals("CustomerService")
-		t:expect(id.snake_full):equals("customer_service")
+	prova.test("cases both names, and keeps them separate", {
+		covers = "docs/standards.md#simplified-identity",
+	}, function(t)
 		t:expect(id.project_name):equals("customer-service")
+		t:expect(id.project_snake):equals("customer_service")
+		t:expect(id.ProjectName):equals("CustomerService")
+		t:expect(id.projectName):equals("customerService")
+		t:expect(id.entity_name):equals("customer")
+		t:expect(id.entity_snake):equals("customer")
+		t:expect(id.EntityName):equals("Customer")
+		t:expect(id.entityName):equals("customer")
 	end)
 end)
 
-prova.describe("identity: multi-word (User Details)", function()
-	local id = p6m.identity{ prefix = "User Details", org = "Acme", solution = "Platform" }
+prova.describe("identity: multi-word (user-details-service)", function()
+	local id = p6m.identity{ project = "user-details-service", entity = "user-details",
+		solution = "acme-platform" }
 
-	prova.test("derives every cased variant", function(t)
-		t:expect(id.PrefixName):equals("UserDetails")
-		t:expect(id.prefix_name):equals("user_details")
-		t:expect(id.prefixName):equals("userDetails")
-		t:expect(id.prefix_kebab):equals("user-details")
-		t:expect(id.PascalFull):equals("UserDetailsService")
-		t:expect(id.snake_full):equals("user_details_service")
+	prova.test("cases both names, and keeps them separate", {
+		covers = "docs/standards.md#simplified-identity",
+	}, function(t)
 		t:expect(id.project_name):equals("user-details-service")
-		t:expect(id.org_solution):equals("acme-platform")
+		t:expect(id.project_snake):equals("user_details_service")
+		t:expect(id.ProjectName):equals("UserDetailsService")
+		t:expect(id.entity_name):equals("user-details")
+		t:expect(id.entity_snake):equals("user_details")
+		t:expect(id.EntityName):equals("UserDetails")
+		t:expect(id.entityName):equals("userDetails")
+		t:expect(id.solution):equals("acme-platform")
 	end)
 
 	prova.test("tolerates every input shape", function(t)
 		for _, shape in ipairs({ "User Details", "user-details", "user_details", "UserDetails" }) do
-			t:expect(p6m.identity{ prefix = shape }.PrefixName, shape):equals("UserDetails")
+			t:expect(p6m.identity{ project = "x", entity = shape }.EntityName, shape)
+				:equals("UserDetails")
 		end
+	end)
+
+	prova.test("an omitted entity means the shape has none — never a guessed strip", {
+		covers = "docs/standards.md#simplified-identity",
+		proves = "the derivation lives in p6m-identity-library and nowhere else; an oracle that "
+			.. "quietly re-implemented it would disagree with the library the day the vocabulary moved",
+	}, function(t)
+		local bare = p6m.identity{ project = "billing-service" }
+		t:expect(bare.EntityName, "no strip is attempted"):equals("BillingService")
+	end)
+
+	prova.test("the retired prefix/suffix vocabulary is refused, with the migration in the message", {
+		covers = "docs/standards.md#simplified-identity",
+		proves = "a silent nil would surface as an empty class name three layers downstream; the "
+			.. "assert names the replacement instead",
+	}, function(t)
+		local ok, err = pcall(p6m.identity, { prefix = "User Details", suffix = "Service" })
+		t:expect(ok, "prefix/suffix is rejected"):is_false()
+		t:expect(tostring(err), "the error names the new shape"):contains("project =")
+	end)
+
+	prova.test("the retiring aliases still answer, so unconverted suites stay green", {
+		proves = "21 hand-rolled suites read the old names; they are aliases of one derivation, not "
+			.. "a second one, and they go with the last suite that reads them",
+	}, function(t)
+		t:expect(id.PrefixName):equals(id.EntityName)
+		t:expect(id.prefixName):equals(id.entityName)
+		t:expect(id.prefix_kebab):equals(id.entity_name)
+		t:expect(id.prefix_name):equals(id.entity_snake)
+		t:expect(id.PascalFull):equals(id.ProjectName)
+		t:expect(id.snake_full):equals(id.project_snake)
+		t:expect(id.org_solution):equals(id.solution)
 	end)
 end)
 
 prova.describe("api surfaces (User Details)", function()
-	local id = p6m.identity{ prefix = "User Details" }
+	local id = p6m.identity{ project = "user-details-service", entity = "user-details" }
 
 	prova.test("grpc: flat package, service-named service, entity-named CRUD rpcs", function(t)
 		local g = p6m.api.grpc_surface(id)
@@ -153,7 +197,7 @@ prova.describe("s10 ci parity", function()
 end)
 
 prova.describe("env contract", function()
-	local id = p6m.identity{ prefix = "Customer" }
+	local id = p6m.identity{ project = "customer-service", entity = "customer" }
 
 	prova.test("names the platform-injected vars per transport", function(t)
 		local grpc = p6m.env_contract(id, "grpc", { GRPC_PORT = "50051", MANAGEMENT_PORT = "8081" })

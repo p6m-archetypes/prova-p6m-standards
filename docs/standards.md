@@ -52,12 +52,49 @@ bridge stays as small and native as the language allows. Compliance is sameness 
 not sameness of code.
 
 ### S1 — Identity and casing
-One answer set drives every rendering:
-`org_name`, `solution_name`, `prefix_name`, `suffix_name` (default `Service`), ports, resource
-selections. From `prefix_name` + `suffix_name` the casing set is fixed:
-PascalCase (`UserDetails`), snake (`user_details`), kebab `project-name`
-(`user-details-service`). The suite always runs **two name shapes**: a single word
-(`Customer`) and a multi-word (`User Details`) — casing bugs only show on the second.
+
+<!-- claim: simplified-identity -->
+One answer set drives every rendering, and it names **two things, not four**:
+
+| Answer | What it is |
+|---|---|
+| `project_name` | the repository and project directory, the container image, the `PlatformApplication`, the Tilt resource, `OTEL_SERVICE_NAME`, and the gRPC service name |
+| `entity_name` | the CRUD subject the generated API exposes — **defaulted** from `project_name`, and a real answer |
+| `solution_name` | the namespace prefix; the platform operator reads solution and environment back out of `{solution}-{application}-{env}` |
+
+plus ports and resource selections. From each name the casing set is fixed — PascalCase
+(`UserDetailsService`), snake (`user_details_service`), kebab (`user-details-service`) — and the
+suite always runs **two name shapes**, a single word and a multi-word, because casing bugs only
+show on the second.
+
+**The two names are separate because they were always two jobs.** `prefix_name` used to be both
+half of the project name and the CRUD entity, which is why `billing-service` could not say
+whether its REST collection was `/api/v1/billings` or `/api/v1/billing-services`. It is
+`/api/v1/billings`: S2's "entity-named, not service-named", now sayable because the entity has
+its own answer.
+
+**Exactly one implementation derives; the oracle takes.**
+[`p6m-identity-library`](https://github.com/p6m-archetypes/p6m-identity-library) owns the single
+p6m-specific name derivation in the fleet — the entity defaulted off the project name by
+stripping a trailing type qualifier (`service`, `gateway`, `adapter`, …) — and proves it in its
+own suite against a table of name shapes. `p6m.identity{ project = …, entity = … }` accepts both
+as explicit inputs and computes no names of its own beyond casing. A prompt library and an oracle
+that each derive the same names is a drift machine; an omitted `entity` therefore means *this
+shape has no domain entity* (overlay, basic), never *guess what the library would have done*.
+
+Casing needs no such care: `prova.str` calls archetect's own inflections, so a name cased by the
+oracle and a name cased by a template agree by construction.
+
+**Retired (YP6M-3424):** `org_name` × `solution_name` as two prompts (nothing read either — only
+their combination), `prefix_name` × `suffix_name`, and author identity (`author_name` /
+`author_email` reached four files fleet-wide, and archetect pre-answers them from `~/.gitconfig`).
+`p6m.identity` rejects `prefix`/`suffix` with the migration in the error message rather than
+returning a nil that surfaces as an empty class name three layers downstream.
+
+Conventions are not lost by asking less. Archetect resolves answers `config → -A files → -a
+flags` and an answered key suppresses its prompt entirely, so an org convention supplied by
+`p6m-catalog` or injected by Ybor Studio costs zero prompts and **cannot be typed wrong** — which
+a free-text prefix never guaranteed.
 
 ### S2 — One API, three transports (full CRUD)
 Every transport of a full-flavor archetype exposes the same five operations over the entity
