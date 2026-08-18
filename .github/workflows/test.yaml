@@ -18,11 +18,10 @@ jobs:
       # skip cleanly here unless you also stand that resource up (Docker is available on the runner).
       - name: Run the plugin's self-test
         uses: prova-rs/run-action@v1
-        with:
-          # Pin the engine, per E7 — the action's own default goes stale as prova moves, and this
-          # plugin is where the parse/decode skew between a release and a source build is bridged,
-          # so it is the last place that should be guessing which engine it is running on.
-          version: v0.16.1
+        # No `version:` — the rule E7's proof has held since v1.10, and which this repo was itself
+        # breaking. The pin said "per E7" while E7 forbids it, and it froze this suite on v0.16.1
+        # after [requires] moved to >= 0.19, so every dev run failed before a single proof ran. The
+        # engine version belongs in run-action, which is bumped with each prova release.
 
       # prova is now on PATH — check the plugin conforms to the namespacing grammar.
       - name: Lint the plugin
