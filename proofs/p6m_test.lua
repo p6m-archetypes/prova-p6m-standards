@@ -433,7 +433,10 @@ prova.describe("service spec: full shape", function()
 		t:expect(s.required_answers.project_name):equals("user-details-service")
 		t:expect(s.required_answers.entity_name):equals("user-details")
 		t:expect(s.required_answers.solution_name):equals("acme-platform")
-		t:expect(s.required_answers.image_registry, "a registry has no identity role"):is_nil()
+		-- Not an identity fact, but still REQUIRED: nothing in the composition defaults a registry
+		-- hostname, so a defaults=false render demands it. Discovered by running the E2 check against
+		-- java-rest for the first time — the bar corrected the spec, not the other way round.
+		t:expect(s.required_answers.image_registry):equals("ghcr.io/acme")
 	end)
 
 	prova.test("language answers join the key, and are required unless declared otherwise", function(t)

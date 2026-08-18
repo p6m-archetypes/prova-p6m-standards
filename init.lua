@@ -677,9 +677,13 @@ function p6m.spec(o)
   -- fallback must succeed — E2's mechanism, generalized off the overlays onto every service shape.
   -- Language-specific required answers (a Maven group id, a Go module path) are merged by the
   -- consumer through `o.answers`, and each one it must supply is a prompt this bar makes visible.
+  -- `image_registry` belongs here, not merely in `answers`: no library in the composition gives it
+  -- a default (registry hostnames are company-specific), so a defaults=false render demands it. The
+  -- E2 check surfaced that the first time it ran against a real archetype — which is what it is for.
   s.required_answers = {
     project_name = s.id.project_name,
     solution_name = s.id.solution,
+    image_registry = s.registry,
   }
   if entity then s.required_answers.entity_name = s.id.entity_name end
 
