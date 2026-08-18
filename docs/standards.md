@@ -170,6 +170,40 @@ variant's production image, and the hollow (None) rendering is proven by a docke
 `docker.build` of its production Dockerfile. A rendered project's own unit tests belong to the
 rendered project's CI, not to the archetype's suite.
 
+### S1b — The prompt surface is a declared interface
+
+<!-- claim: prompt-surface-conformance -->
+Every archetype **complies with one declared interface**, and the interface is stated in the
+plugin rather than in thirty repos. This is §2b's E2 generalized off the overlay shape: the same
+two halves, because a render can only observe one of them.
+
+- **What is REQUIRED** is observed by rendering headlessly with only the declared answer key and
+  **no defaults fallback**. Archetect makes an unanswered prompt that has no default a hard error
+  naming its key, so a required answer the archetype's output never reads cannot hide behind `-D`.
+- **What is merely DEFAULTED** renders perfectly and is invisible to that check — a suffix
+  selector, a debug port nothing publishes. That half is held on the **composed catalog**: an
+  archetype may compose only libraries whose prompts survive the declared vocabulary
+  (`p6m.PROMPT_LIBRARIES`), must compose `p6m-identity`, and may compose none of the three
+  retired identity libraries (`author`, `org`, `project` — each refused with the measurement that
+  retired it, so the failure says *why*).
+
+**One harness per shape is what makes compliance structural rather than clerical.** A p6m
+archetype has one of three shapes — **full** (rest/grpc/graphql), **basic**, **overlay**
+(§2b) — and the shape, not the language, decides which standards have a subject. Each shape
+carries a `spec{}` / `render` / `standards.*` triple, so a language's suite is a thin invocation
+and every language is held identically by construction.
+
+The cost of not having this was measured on 2026-08-17, before the triple existed for the full
+and basic shapes: **21 of 30 suites called `archetect.render` themselves**, and the entity's
+persistence table — one standard, name-derived per S2 — had **four** answers across the fleet
+(`items`, `Items`/`DisplayName`, `` `items` ``, `{prefix_name}s`). The hardcoded-`items` suites
+asserted a weaker bar than the name-derived ones and every one of them passed, because a suite
+that hardcodes `items` cannot fail against a service that hardcodes `items` too. **A suite that
+encodes the drift it exists to catch is worse than no suite: it reports green.**
+
+`p6m.spec{}` closes it structurally — the identity, the render answers and the SQL oracle all come
+from one object, so a suite cannot answer the archetype one thing and assert another.
+
 ### S9 — Suite and CI hygiene
 `prova.toml` uses `[run] proofs = [...]` (prova ≥0.7), plugins pinned to released tags
 (`prova-rs/prova-postgres@v1` etc. — released 2026-07-22), `acceptance.yaml` on

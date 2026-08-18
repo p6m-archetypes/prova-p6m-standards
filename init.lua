@@ -593,6 +593,146 @@ function p6m.ci.dockerfile(stack, opts)
   return table.concat(lines, "\n") .. "\n"
 end
 
+-- ── The service shapes: one harness per shape, so a suite is a thin invocation ───────────────────
+--
+-- A p6m archetype comes in one of three SHAPES, and the shape — not the language — decides which
+-- standards have a subject:
+--
+--   full    (rest/grpc/graphql) generates a domain: S1-S10, CRUD over the entity
+--   basic   generates a bootable service with no domain: S1, S3-S9 (no S2 CRUD)
+--   overlay (empty) generates only the platform layer: E1-E7 (see p6m.empty below)
+--
+-- The overlay shape has had this triple — `spec{}` / `render` / `standards.*` — since 2026-07-27,
+-- and its six suites are ~75-line thin invocations that cannot drift from each other. The other
+-- twenty-four hand-rolled theirs, and the cost was measurable: twenty-one called `archetect.render`
+-- themselves, and the entity's persistence table alone had FOUR answers across the fleet (`items`,
+-- `Items`/`DisplayName`, `` `items` ``, `{prefix_name}s`) for one standard that says it is
+-- name-derived. Every one of those suites passed. A suite that encodes the drift it exists to catch
+-- is worse than no suite, because it reports green.
+--
+-- So the identity, the render answers and the SQL oracle all come from ONE spec here. A suite that
+-- builds its expectations and its render from the same object cannot answer the archetype one thing
+-- and assert another.
+
+-- No path allowlist here on purpose. Containment (`writes ⊆ allowed`) is the OVERLAY's bar (E3),
+-- because an overlay that writes project scaffolding has broken its contract. A service archetype
+-- is supposed to write scaffolding, and it is language-specific, so an allowlist would be a
+-- per-language list to maintain that proves nothing.
+
+--- The service-shape spec: one object that answers the render AND states the expectation.
+---
+--- `project` is the only name required. `entity` is passed through to `p6m.identity` untouched —
+--- neither this nor the oracle re-derives it, because p6m-identity-library owns that rule (S1). A
+--- full-shape suite should pass both, and pass the SAME `entity` it answers the render with, which
+--- is automatic here: `s.answers` and `s.id` are built from the one input.
+---
+---@param o { language: string, shape: string?, transport: string?,
+---           project: string, entity: string?, solution: string, registry: string?,
+---           persistence: string?, cache: string?, messaging: string?, messaging_access: string?,
+---           answers: table?, extras: string[]? }
+function p6m.spec(o)
+  assert(type(o) == "table" and o.project, "p6m.spec requires { project = ... }")
+  local language = assert(o.language, "p6m.spec requires { language = ... }")
+  local shape = o.shape or "full"
+  assert(shape == "full" or shape == "basic",
+    "p6m.spec shape must be \"full\" or \"basic\" — the overlay shape is p6m.empty.spec")
+
+  local transport = o.transport
+  if shape == "full" then
+    assert(transport == "rest" or transport == "grpc" or transport == "graphql",
+      "p6m.spec{ shape = \"full\" } requires transport = \"rest\" | \"grpc\" | \"graphql\"")
+  end
+
+  -- A basic archetype generates no domain, so it has no entity — and the oracle must be told that
+  -- rather than left to guess a strip it deliberately does not implement (S1).
+  local entity = shape == "full" and (o.entity or o.project) or nil
+
+  local s = {
+    language = language,
+    shape = shape,
+    transport = transport,
+    id = p6m.identity{ project = o.project, entity = entity, solution = o.solution },
+    registry = o.registry or "ghcr.io/acme",
+    persistence = o.persistence or "None",
+    cache = o.cache or "None",
+    messaging = o.messaging or "None",
+    messaging_access = o.messaging_access or "produce",
+    extras = o.extras or {},
+  }
+
+  s.protocol = ({ rest = "REST", grpc = "gRPC", graphql = "GraphQL" })[transport] or "REST"
+  s.service_port = o.service_port or (transport == "grpc" and 50051 or 8080)
+  s.management_port = o.management_port or (s.service_port + 1)
+
+  -- The directory a service archetype renders its project into — `project-name`, not the
+  -- destination root. Every consumer needs it to reach the rendered tree.
+  s.project_dir = s.id.project_name
+
+  -- S2's persistence oracle, stated ONCE. The entity's table is name-derived with the same naive
+  -- plural the API uses, which is the whole point: `items` hardcoded in a suite cannot fail when a
+  -- rendered service hardcodes `items` too, so the drift survived precisely where it was checked.
+  s.table_name = entity and (s.id.entity_snake .. "s") or nil
+
+  -- The identity facts with no sane default. A headless render with ONLY these and no defaults
+  -- fallback must succeed — E2's mechanism, generalized off the overlays onto every service shape.
+  -- Language-specific required answers (a Maven group id, a Go module path) are merged by the
+  -- consumer through `o.answers`, and each one it must supply is a prompt this bar makes visible.
+  s.required_answers = {
+    project_name = s.id.project_name,
+    solution_name = s.id.solution,
+  }
+  if entity then s.required_answers.entity_name = s.id.entity_name end
+
+  s.answers = {
+    project_name = s.id.project_name,
+    solution_name = s.id.solution,
+    image_registry = s.registry,
+    service_port = s.service_port,
+    management_port = s.management_port,
+    persistence = s.persistence,
+    cache = s.cache,
+    messaging = s.messaging,
+    messaging_access = s.messaging_access,
+  }
+  if entity then s.answers.entity_name = s.id.entity_name end
+
+  for k, v in pairs(o.answers or {}) do
+    s.answers[k] = v
+    -- A language answer with no default is required for the E2 render too; the consumer declares
+    -- which by listing it in `o.required`, defaulting to all of them (the safe direction: a stray
+    -- entry only makes the E2 render more specific, never less).
+    if (o.required == nil) or o.required[k] then s.required_answers[k] = v end
+  end
+
+  s.label = language .. "-" .. (transport or shape)
+    .. "[" .. s.id.project_name .. "/" .. s.persistence .. "]"
+  return s
+end
+
+--- The shared render fixture for a service shape. One headless render per spec, into a named
+--- tempdir so several specs in one file cannot collide.
+---
+--- `ctx:tempdir()` is ADDRESSED, not created: every unnamed call in one scope answers with the same
+--- directory, so N renders into one destination leave the first winner in place and every later
+--- spec silently asserts against it — a suite that proves one variant N times, all green. The name
+--- is the fix and it is not optional.
+---@param s table a `p6m.spec` result
+---@param opts { source: string?, scope: any?, answers: table?, defaults: boolean? }?
+function p6m.render(s, opts)
+  opts = opts or {}
+  return prova.fixture(s.label .. ":project", opts.scope or Scope.File, function(ctx)
+    local answers = {}
+    for k, v in pairs(s.answers) do answers[k] = v end
+    for k, v in pairs(opts.answers or {}) do answers[k] = v end
+    return archetect.render{
+      source = opts.source or ".",
+      answers = answers,
+      destination = ctx:tempdir(s.label),
+      defaults = opts.defaults ~= false,
+    }
+  end)
+end
+
 -- ── E1–E7: the overlay ("empty") archetypes ─────────────────────────────────────────────────────
 --
 -- An overlay archetype retrofits an EXISTING application: it renders only the platform servicing
@@ -1387,6 +1527,98 @@ function p6m.standards.ci_parity(g, project_fixture, spec)
     }
     t:expect(image, "CI-parity image (each CI command is a RUN layer)"):never():is_nil()
   end)
+end
+
+-- ── The prompt surface: every archetype complies with one declared interface ─────────────────────
+
+--- The prompt vocabulary a p6m service archetype may ask for. Anything outside it is an identity
+--- opinion the fleet retired (S1) or a prompt whose answer nothing reads (E2's principle).
+---
+--- Held on the COMPOSED CATALOG rather than on a render, because the two halves of the bar are
+--- visible in different places: a render exposes what is REQUIRED (an unanswered prompt with no
+--- default is a hard error naming its key), while a DEFAULTED vestigial prompt — a suffix selector,
+--- a debug port nothing publishes — renders perfectly and is invisible to it. The library a prompt
+--- arrives through is the one place both are declarable.
+p6m.PROMPT_LIBRARIES = {
+  -- the identity surface: THE single implementation (S1)
+  "p6m-identity",
+  -- prompt nothing, or prompt only what the tactical key answers
+  "ports", "editor-config", "gitignore", "scm", "archiver",
+  "platform-application-manifests",
+}
+
+--- The libraries the fleet retired, named so the failure says WHY rather than "not in the list".
+p6m.RETIRED_PROMPT_LIBRARIES = {
+  ["author"] = "author identity reached four files fleet-wide and archetect pre-answers it from ~/.gitconfig",
+  ["org"] = "org_name x solution_name were two prompts building one string; p6m-identity asks for the solution slug once",
+  ["project"] = "prefix_name x suffix_name was one name doing two jobs; p6m-identity asks for the project and the entity separately",
+}
+
+--- E2, generalized off the overlays onto every service archetype: **the prompt surface IS the
+--- declared interface.** Two halves, because a render can only observe one of them.
+---
+---@param s table a `p6m.spec` result
+---@param opts { source: string?, root: string?, catalog: string[]?, resources: string[]? }?
+function p6m.standards.prompt_surface(g, s, opts)
+  opts = opts or {}
+  local source = opts.source or "."
+  local root = opts.root or "."
+
+  g:test("renders from the declared answer key alone, with no defaults fallback", {
+    proves = "archetect makes an unanswered prompt that has no default a hard error naming the key,"
+      .. " so a REQUIRED answer the archetype's output never reads cannot hide behind -D",
+  }, function(t)
+    local r = archetect.render{
+      source = source,
+      answers = s.required_answers,
+      destination = t:tempdir(s.label .. ":e2"),
+      defaults = false,
+    }
+    t:expect(#(r.writes or {}) > 0,
+      "the archetype rendered its project from the declared key alone"):is_true()
+  end)
+
+  g:test("composes only libraries whose prompts survive the declared vocabulary", {
+    proves = "E2's other half: a DEFAULTED vestigial prompt renders perfectly and is invisible to"
+      .. " the check above, so the bar is held on the declared composition surface instead",
+  }, function(t)
+    local allowed = {}
+    for _, name in ipairs(opts.catalog or p6m.PROMPT_LIBRARIES) do allowed[name] = true end
+    -- Resource and CI libraries render files and prompt nothing; they are per-language, so the
+    -- consumer names its own rather than the plugin maintaining six lists.
+    for _, name in ipairs(opts.resources or {}) do allowed[name] = true end
+    allowed[s.language .. "-ci"] = true
+
+    local manifest = yaml.decode(fs.read(root .. "/archetype.yaml"))
+    t:expect_all(function()
+      for name in pairs(manifest.catalog or {}) do
+        local retired = p6m.RETIRED_PROMPT_LIBRARIES[name]
+        if retired then
+          t:expect(false, "composes retired prompt library `" .. name .. "` — " .. retired):is_true()
+        else
+          t:expect(allowed[name], "composed library `" .. name .. "` is outside the declared"
+            .. " prompt vocabulary"):is_true()
+        end
+      end
+    end)
+  end)
+
+  g:test("composes the one identity library, so the surface has a single implementation", {
+    proves = "S1: an archetype that asks for identity inline has its own copy of the contract, and"
+      .. " the fleet's whole drift problem is copies of one contract",
+  }, function(t)
+    local manifest = yaml.decode(fs.read(root .. "/archetype.yaml"))
+    t:expect((manifest.catalog or {})["p6m-identity"],
+      "archetype.yaml composes p6m-identity"):never():is_nil()
+  end)
+end
+
+--- The properties of the ARCHETYPE REPO (as opposed to its rendered output): the prompt surface it
+--- declares and the suite/CI hygiene it keeps. The mirror of `p6m.empty.standards.archetype`.
+---@param s table a `p6m.spec` result
+function p6m.standards.archetype(g, s, opts)
+  p6m.standards.prompt_surface(g, s, opts)
+  p6m.empty.standards.hygiene(g, opts)
 end
 
 return p6m

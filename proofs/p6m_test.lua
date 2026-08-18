@@ -394,3 +394,115 @@ prova.describe("S4: the JSON-line judgment", function()
 		t:expect(type(json.decode), "the decoder it delegates to"):equals("function")
 	end)
 end)
+
+-- ── The service shapes: one spec answers the render AND states the expectation ───────────────────
+--
+-- Hermetic, like the identity oracle above. The point of `p6m.spec` is structural: a suite that
+-- builds its identity, its render answers and its SQL oracle from ONE object cannot answer the
+-- archetype one thing and assert another. These proofs hold that they really do come from one
+-- input — which is the property that would have caught the four-way persistence-table drift.
+
+prova.describe("service spec: full shape", function()
+	local s = p6m.spec{
+		language = "java", shape = "full", transport = "rest",
+		project = "user-details-service", entity = "user-details",
+		solution = "acme-platform", persistence = "PostgreSQL",
+	}
+
+	prova.test("the identity and the render answers are the same two names", {
+		covers = "docs/standards.md#prompt-surface-conformance",
+		proves = "the drift this shape harness exists to kill: 21 suites rendered with one answer "
+			.. "key and asserted against a separately-built identity, and nothing held them equal",
+	}, function(t)
+		t:expect(s.answers.project_name):equals(s.id.project_name)
+		t:expect(s.answers.entity_name):equals(s.id.entity_name)
+		t:expect(s.answers.solution_name):equals(s.id.solution)
+	end)
+
+	prova.test("the persistence table is name-derived, stated once", {
+		covers = "docs/standards.md#prompt-surface-conformance",
+		proves = "S2 says the entity is name-derived; a suite hardcoding `items` cannot fail when "
+			.. "the rendered service hardcodes `items` too, so the drift survived where it was checked",
+	}, function(t)
+		t:expect(s.table_name):equals("user_detailss")
+	end)
+
+	prova.test("the declared key carries the identity facts with no sane default", {
+		covers = "docs/standards.md#prompt-surface-conformance",
+	}, function(t)
+		t:expect(s.required_answers.project_name):equals("user-details-service")
+		t:expect(s.required_answers.entity_name):equals("user-details")
+		t:expect(s.required_answers.solution_name):equals("acme-platform")
+		t:expect(s.required_answers.image_registry, "a registry has no identity role"):is_nil()
+	end)
+
+	prova.test("language answers join the key, and are required unless declared otherwise", function(t)
+		local j = p6m.spec{
+			language = "java", shape = "full", transport = "grpc",
+			project = "billing-service", entity = "billing", solution = "acme",
+			answers = { group_id = "acme.platform", artifactory_host = "acme.jfrog.io" },
+		}
+		t:expect(j.answers.group_id):equals("acme.platform")
+		t:expect(j.required_answers.artifactory_host):equals("acme.jfrog.io")
+
+		local g = p6m.spec{
+			language = "golang", shape = "full", transport = "rest",
+			project = "billing-service", solution = "acme",
+			answers = { module_path = "github.com/acme/billing-service" },
+			required = {},
+		}
+		t:expect(g.required_answers.module_path, "declared not-required"):is_nil()
+		t:expect(g.answers.module_path):equals("github.com/acme/billing-service")
+	end)
+end)
+
+prova.describe("service spec: basic shape", function()
+	local s = p6m.spec{
+		language = "rust", shape = "basic",
+		project = "billing-service", solution = "acme-platform",
+	}
+
+	prova.test("a shape with no domain has no entity, and says so", {
+		covers = "docs/standards.md#prompt-surface-conformance",
+		proves = "S1: an omitted entity means this shape has none, never a guessed strip — a basic "
+			.. "archetype generates no CRUD, so an entity answer would be a prompt nothing reads",
+	}, function(t)
+		t:expect(s.table_name, "no persistence oracle"):is_nil()
+		t:expect(s.answers.entity_name, "no entity answer"):is_nil()
+		t:expect(s.required_answers.entity_name):is_nil()
+		t:expect(s.id.EntityName, "the oracle cases the project, not a guess"):equals("BillingService")
+	end)
+
+	prova.test("a full shape must name its transport; a basic one must not need to", function(t)
+		local ok = pcall(p6m.spec, {
+			language = "java", shape = "full", project = "billing-service", solution = "acme",
+		})
+		t:expect(ok, "full without a transport is rejected"):is_false()
+		t:expect(s.transport, "basic has none"):is_nil()
+	end)
+end)
+
+prova.describe("the declared prompt vocabulary", function()
+	prova.test("the retired identity libraries are named, with the reason", {
+		covers = "docs/standards.md#prompt-surface-conformance",
+		proves = "a failure that says `author is not in the list` teaches nothing; one that says "
+			.. "author reached four files fleet-wide tells the reader what to do instead",
+	}, function(t)
+		for _, name in ipairs({ "author", "org", "project" }) do
+			t:expect(p6m.RETIRED_PROMPT_LIBRARIES[name], name):never():is_nil()
+		end
+	end)
+
+	prova.test("p6m-identity is in the vocabulary and the retired three are not", {
+		covers = "docs/standards.md#prompt-surface-conformance",
+	}, function(t)
+		local declared = {}
+		for _, n in ipairs(p6m.PROMPT_LIBRARIES) do declared[n] = true end
+		t:expect(declared["p6m-identity"], "the identity surface"):is_true()
+		t:expect_all(function()
+			for _, n in ipairs({ "author", "org", "project" }) do
+				t:expect(declared[n], "retired: " .. n):never():is_true()
+			end
+		end)
+	end)
+end)
