@@ -1222,12 +1222,15 @@ function p6m.empty.standards.prompt_surface(g, s, opts)
     proves = "E2's other half: a DEFAULTED vestigial prompt is invisible to a render, so the bar"
       .. " is held on the declared composition surface instead",
   }, function(t)
-    local allowed = set_of(opts.catalog or {
-      -- prompts the tactical key answers, or that render no prompt at all
-      "ports", "editor-config", "gitignore", "scm", "archiver",
-      "platform-application-manifests",
-      s.language .. "-ci",
-    })
+    -- The overlay shape composes the SAME declared vocabulary as every other shape
+    -- (`p6m.PROMPT_LIBRARIES`, S1b) plus its language's CI library. Reusing that list rather than
+    -- keeping a second copy here is the point: two allowlists for one bar drift, and this one had
+    -- already fallen behind — it predated p6m-identity, so an overlay that adopted the fleet's
+    -- single identity implementation failed for doing the right thing.
+    local names = {}
+    for _, n in ipairs(opts.catalog or p6m.PROMPT_LIBRARIES) do names[#names + 1] = n end
+    names[#names + 1] = s.language .. "-ci"
+    local allowed = set_of(names)
     local manifest = yaml.decode(fs.read((opts.root or ".") .. "/archetype.yaml"))
     t:expect_all(function()
       for name in pairs(manifest.catalog or {}) do
