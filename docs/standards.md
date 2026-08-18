@@ -111,6 +111,20 @@ Every transport of a full-flavor archetype exposes the same five operations over
   `{prefixName}(id)` and `{prefixName}s` (no `get`/`list` prefixes); mutation
   `create/update/delete{PrefixName}`; served at `/graphql` on the service port.
 
+**The persistence model is `{EntityName}Entity`; the wire type is `{EntityName}`.** (DECIDED
+2026-08-18.) Naming the CRUD surface after the entity puts the stored type and the transported
+type in the same scope, and in three languages they collided outright — `CS0104: 'Customer' is an
+ambiguous reference between CustomerService.Domain.Customer and CustomerService.Proto.Customer`;
+java's generated protobuf message against its JPA `@Entity`; python's strawberry type shadowing
+the SQLAlchemy model it imports. The boundary name is the one the standard fixes, so the
+*internal* type is what moves: the suffix goes on the persistence model, never on the wire type.
+
+Applied uniformly rather than only where a compiler complains — golang's two `{EntityName}`
+structs in different packages and rust's store record collide for a reader even where they do not
+collide for a compiler, and a rule with a "when it clashes" clause is a rule each language decides
+for itself. The table name is unaffected (`@Table`, `__tablename__` and EF's DbSet property all
+name it independently), so `p6m.spec`'s persistence oracle does not move.
+
 Pluralization is a naive appended `s` (what ATL templates can produce): `customers`,
 `userDetailss`. Ugly on some words, but uniform and mechanical — the oracle mirrors it.
 
