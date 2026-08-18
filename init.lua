@@ -142,7 +142,7 @@ p6m.is_json_object = is_json_object
 
 p6m.api = {}
 
---- Expected gRPC surface: flat package `{prefix}_{suffix}`, service `{PrefixName}{SuffixName}`,
+--- Expected gRPC surface: flat package `{project_name}`, service `{PrefixName}{SuffixName}`,
 --- full CRUD rpcs named from the entity (`{PrefixName}`), naive-plural List. `messages` pins the
 --- request/response shapes — the drift the survey found lives there as much as in rpc names.
 function p6m.api.grpc_surface(id)
@@ -671,7 +671,17 @@ function p6m.spec(o)
   -- S2's persistence oracle, stated ONCE. The entity's table is name-derived with the same naive
   -- plural the API uses, which is the whole point: `items` hardcoded in a suite cannot fail when a
   -- rendered service hardcodes `items` too, so the drift survived precisely where it was checked.
-  s.table_name = entity and (s.id.entity_snake .. "s") or nil
+  --
+  -- Storage naming is the one place the fleet legitimately differs: EF Core names tables and
+  -- columns after the CLR property names (PascalCase), every other stack uses snake. That is the
+  -- standard's own principle — idiomatic inside, identical at the boundary — so the API surface
+  -- stays identical while the storage spelling stays native. It is stated here rather than in six
+  -- suites, so a language cannot quietly invent a third convention.
+  local pascal_storage = (language == "dotnet")
+  s.table_name = entity
+    and (pascal_storage and (s.id.EntityName .. "s") or (s.id.entity_snake .. "s"))
+    or nil
+  s.display_name_column = pascal_storage and "DisplayName" or "display_name"
 
   -- The identity facts with no sane default. A headless render with ONLY these and no defaults
   -- fallback must succeed — E2's mechanism, generalized off the overlays onto every service shape.
@@ -849,14 +859,14 @@ function p6m.empty.spec(o)
   -- must succeed — that is the whole prompt-surface proof.
   s.required_answers = {
     project_name = s.application,
-    org_solution_name = s.solution,
+    solution_name = s.solution,
     image_registry = s.registry,
   }
 
   -- The full key: the required facts plus the defaulted selections a variant exercises.
   s.answers = {
     project_name = s.application,
-    org_solution_name = s.solution,
+    solution_name = s.solution,
     image_registry = s.registry,
     protocol = s.protocol,
     service_port = s.service_port,

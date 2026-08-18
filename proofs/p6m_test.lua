@@ -255,13 +255,20 @@ prova.describe("overlay spec: multi-word application (Example Service)", functio
 			keys[#keys + 1] = k
 		end
 		table.sort(keys)
-		t:expect(table.concat(keys, ",")):equals("image_registry,org_solution_name,project_name")
+		-- `solution_name` since YP6M-3424: the slug is asked for by its own name across every shape,
+		-- where it used to arrive as `org_solution_name` — a name for a decomposition the fleet no
+		-- longer has. The archetypes still SET the old key as a transitional alias for the manifests
+		-- library and their Tiltfiles; nothing ASKS for it.
+		t:expect(table.concat(keys, ",")):equals("image_registry,project_name,solution_name")
 	end)
 
 	prova.test("E2: the answer key names no identity opinion", function(t)
+		-- `solution_name` is NOT on this list any more: it names the solution slug now, which is a
+		-- deployment fact the namespace is built from, not the identity opinion it used to be as half
+		-- of an org x solution split.
 		for _, forbidden in ipairs({
-			"author_name", "author_email", "org_name", "solution_name",
-			"prefix_name", "suffix_name", "debug_port",
+			"author_name", "author_email", "org_name", "org_solution_name",
+			"prefix_name", "suffix_name", "entity_name", "debug_port",
 		}) do
 			t:expect(s.answers[forbidden], forbidden .. " must not be asked"):is_nil()
 		end
@@ -425,6 +432,20 @@ prova.describe("service spec: full shape", function()
 			.. "the rendered service hardcodes `items` too, so the drift survived where it was checked",
 	}, function(t)
 		t:expect(s.table_name):equals("user_detailss")
+		t:expect(s.display_name_column):equals("display_name")
+	end)
+
+	prova.test("dotnet stores in its own idiom, and only dotnet", {
+		covers = "docs/standards.md#prompt-surface-conformance",
+		proves = "idiomatic inside, identical at the boundary: EF Core names storage after the CLR "
+			.. "properties. Stated once here so a seventh language cannot invent a third convention",
+	}, function(t)
+		local net = p6m.spec{ language = "dotnet", shape = "full", transport = "grpc",
+			project = "user-details-service", entity = "user-details", solution = "acme" }
+		t:expect(net.table_name):equals("UserDetailss")
+		t:expect(net.display_name_column):equals("DisplayName")
+		-- and the API surface is untouched by it
+		t:expect(p6m.api.rest_surface(net.id).base):equals("/api/v1/user-detailss")
 	end)
 
 	prova.test("the declared key carries the identity facts with no sane default", {
