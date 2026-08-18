@@ -934,7 +934,14 @@ function p6m.empty.render(s, opts)
     return archetect.render{
       source = opts.source or ".",
       answers = opts.answers or s.answers,
-      destination = ctx:tempdir(),
+      -- NAMED, and that is load-bearing. `ctx:tempdir()` is ADDRESSED, not created: every unnamed
+      -- call in one scope answers with the SAME directory. A suite with two variants therefore
+      -- rendered both into one destination, and since prova 0.19 preserves an existing path rather
+      -- than overwriting it, the FIRST variant won and the second silently asserted against it —
+      -- so every overlay suite's second variant (the single-word name, the gRPC port contract, the
+      -- full resourceRequirements set) was never actually proven. Latent from 0.19 until the
+      -- YP6M-3424 sweep pushed a change that made the expectations disagree loudly enough to see.
+      destination = ctx:tempdir(s.label),
       defaults = false,
     }
   end)
