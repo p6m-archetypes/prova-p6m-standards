@@ -1637,6 +1637,119 @@ function p6m.standards.prompt_surface(g, s, opts)
   end)
 end
 
+
+-- ── S1c: the layout vocabulary ───────────────────────────────────────────────────────────────────
+
+--- The page and section keys every p6m archetype lays its prompts out in. One vocabulary, so a form
+--- reads identically whatever the language or shape, and a wizard can route on keys it knows.
+---
+--- `sections` lists what MAY appear under a page; `shapes` limits a page to the shapes that have
+--- prompts for it. A shape omits what it has no prompts for and never invents a key.
+p6m.LAYOUT = {
+  pages = {
+    project         = { sections = { "platform", "service" },
+                        shapes = { full = true, basic = true, overlay = true } },
+    container_build = { sections = {},
+                        shapes = { overlay = true } },
+    -- the overlay carries this page without sections: its resource prompts sit on it directly
+    resources       = { sections = { "persistence", "cache", "messaging", "object_storage" },
+                        shapes = { full = true, overlay = true } },
+    source_control  = { sections = {},
+                        shapes = { full = true, basic = true, overlay = true } },
+  },
+  -- the pages a shape MUST declare (it may not omit these; it has prompts for them)
+  required = {
+    full    = { "project", "resources", "source_control" },
+    basic   = { "project", "source_control" },
+    overlay = { "project", "container_build", "resources", "source_control" },
+  },
+}
+
+--- S1c: the archetype declares the fleet's layout vocabulary, and pins its keys.
+---
+--- Read from the SCRIPT, not from a derived interface. That a declaration becomes a layout in the
+--- derived interface is archetect's bar, held by its own suite — restating it here would be a
+--- second statement of one thing. What only we can get wrong is which keys we declare, and whether
+--- we pinned them; both are visible in the source and need no toolchain to check (S8b).
+---@param shape string "full" | "basic" | "overlay"
+---@param opts { root: string? }?
+function p6m.standards.layout(g, shape, opts)
+  opts = opts or {}
+  local root = opts.root or "."
+  local required = assert(p6m.LAYOUT.required[shape],
+    "p6m.standards.layout: unknown shape " .. tostring(shape))
+
+  local script = fs.read(root .. "/archetype.lua")
+
+  -- every page/section declaration, as { verb, key }
+  local declared = {}
+  for verb, body in script:gmatch("[:%.](page|section)%(%s*{(.-)}%s*,") do
+    local key = body:match('key%s*=%s*"([%w_]+)"')
+    declared[#declared + 1] = { verb = verb, key = key, body = body }
+  end
+
+  g:test("declares only the fleet's page and section keys", {
+    proves = "S1c: one vocabulary across thirty archetypes is what lets a wizard route on keys it "
+      .. "knows; an archetype that invents `storage` where the fleet says `object_storage` renders "
+      .. "a step no client recognises",
+  }, function(t)
+    local pages, sections = {}, {}
+    for key, spec in pairs(p6m.LAYOUT.pages) do
+      pages[key] = spec
+      for _, sec in ipairs(spec.sections) do sections[sec] = true end
+    end
+    t:expect(#declared > 0, "the archetype declares a layout at all"):is_true()
+    t:expect_all(function()
+      for _, d in ipairs(declared) do
+        if d.verb == "page" then
+          t:expect(pages[d.key] ~= nil, "page key `" .. tostring(d.key) .. "`"):is_true()
+          if pages[d.key] then
+            t:expect(pages[d.key].shapes[shape] == true,
+              "page `" .. d.key .. "` belongs to the " .. shape .. " shape"):is_true()
+          end
+        else
+          t:expect(sections[d.key] ~= nil, "section key `" .. tostring(d.key) .. "`"):is_true()
+        end
+      end
+    end)
+  end)
+
+  g:test("declares every page its shape has prompts for", {
+    proves = "S1c: a shape omits what it has no prompts for — but it may not drop a page it does "
+      .. "have prompts for, which would bury those fields in whatever step came before",
+  }, function(t)
+    local seen = {}
+    for _, d in ipairs(declared) do
+      if d.verb == "page" then seen[d.key] = true end
+    end
+    t:expect_all(function()
+      for _, key in ipairs(required) do
+        t:expect(seen[key], "the " .. shape .. " shape declares page `" .. key .. "`"):is_true()
+      end
+    end)
+  end)
+
+  g:test("pins every key, so a wizard can route on it", {
+    proves = "S1c: the hybrid drive re-derives between rounds and pages appear and disappear as "
+      .. "branches open, so a client routes on `key`. The bare-string form lets archetect derive "
+      .. "one from the title — and titles are display text that changes",
+  }, function(t)
+    t:expect_all(function()
+      for _, d in ipairs(declared) do
+        t:expect(d.key ~= nil,
+          "a " .. d.verb .. " declared without an explicit key: {" .. d.body:sub(1, 60) .. "…"):is_true()
+      end
+      -- the bare-string form takes a string literal where the table form takes `{`
+      for verb in script:gmatch('[:%.](page)%(%s*"') do
+        t:expect(false, "bare-string `" .. verb .. "(\"…\")` derives a key from the title"):is_true()
+      end
+      for verb in script:gmatch('[:%.](section)%(%s*"') do
+        t:expect(false, "bare-string `" .. verb .. "(\"…\")` derives a key from the title"):is_true()
+      end
+    end)
+  end)
+end
+
 --- The properties of the ARCHETYPE REPO (as opposed to its rendered output): the prompt surface it
 --- declares and the suite/CI hygiene it keeps. The mirror of `p6m.empty.standards.archetype`.
 ---@param s table a `p6m.spec` result

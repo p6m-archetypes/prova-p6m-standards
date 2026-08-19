@@ -530,3 +530,56 @@ prova.describe("the declared prompt vocabulary", function()
 		end)
 	end)
 end)
+
+-- ── S1c: the layout vocabulary ───────────────────────────────────────────────────────────────────
+--
+-- Hermetic, like the identity oracle: the vocabulary is data, and these hold its shape. Whether a
+-- given archetype conforms is asserted in that archetype's own suite via
+-- `p6m.standards.layout(g, shape)` — one statement per archetype, one vocabulary here.
+
+prova.describe("layout vocabulary", function()
+	prova.test("every required page exists in the vocabulary it is required from", {
+		covers = "docs/standards.md#layout-vocabulary",
+		proves = "a shape cannot be required to declare a page the vocabulary does not define — "
+			.. "that would be an unsatisfiable bar, green nowhere and explicable nowhere",
+	}, function(t)
+		t:expect_all(function()
+			for shape, keys in pairs(p6m.LAYOUT.required) do
+				for _, key in ipairs(keys) do
+					local page = p6m.LAYOUT.pages[key]
+					t:expect(page ~= nil, shape .. " requires page `" .. key .. "`"):never():is_nil()
+					if page then
+						t:expect(page.shapes[shape], "page `" .. key .. "` admits the " .. shape
+							.. " shape it is required from"):is_true()
+					end
+				end
+			end
+		end)
+	end)
+
+	prova.test("section keys are unique across pages", {
+		covers = "docs/standards.md#layout-vocabulary",
+		proves = "a wizard routes on the section key alone; the same key under two pages would make "
+			.. "that route ambiguous",
+	}, function(t)
+		local owner = {}
+		t:expect_all(function()
+			for page, spec in pairs(p6m.LAYOUT.pages) do
+				for _, sec in ipairs(spec.sections) do
+					t:expect(owner[sec], "section `" .. sec .. "` is claimed by `"
+						.. tostring(owner[sec]) .. "` and `" .. page .. "`"):is_nil()
+					owner[sec] = page
+				end
+			end
+		end)
+	end)
+
+	prova.test("the shapes are exactly the three the fleet has", {
+		covers = "docs/standards.md#layout-vocabulary",
+	}, function(t)
+		local shapes = {}
+		for shape in pairs(p6m.LAYOUT.required) do shapes[#shapes + 1] = shape end
+		table.sort(shapes)
+		t:expect(table.concat(shapes, ",")):equals("basic,full,overlay")
+	end)
+end)

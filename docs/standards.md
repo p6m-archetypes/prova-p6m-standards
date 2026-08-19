@@ -184,6 +184,43 @@ variant's production image, and the hollow (None) rendering is proven by a docke
 `docker.build` of its production Dockerfile. A rendered project's own unit tests belong to the
 rendered project's CI, not to the archetype's suite.
 
+### S1c — The prompt surface has one layout vocabulary
+
+<!-- claim: layout-vocabulary -->
+Every archetype lays its prompts out in **pages and sections** (`context:page` / `ctx:section`,
+archetect >= 3.4.3), and they all use the **same keys**, so a form reads identically whatever the
+language or shape:
+
+| Page | Sections | Shapes |
+|---|---|---|
+| `project` | `platform`, `service` | all |
+| `container_build` | — | overlay only |
+| `resources` | `persistence`, `cache`, `messaging`, `object_storage` | full (overlay carries the page without sections) |
+| `source_control` | — | all |
+
+Grouping intent is the one thing a derived interface cannot infer from the script — only the
+author has it — so the script says it, once, in a vocabulary the fleet shares. **A shape omits a
+page or section it has no prompts for; it never invents one.** basic drops `resources` and the
+entity; overlays drop the entity and add `container_build`.
+
+**Keys are pinned, never derived from a title.** Ybor Studio drives this as a *hybrid* wizard —
+describe with the answers so far, render the first page that still has prompts, collect, describe
+again — and pages appear and disappear between rounds as branches open. A client therefore routes
+on `key`; titles are display text and may change. Every `page` and `section` in the fleet passes an
+explicit `key`, and the bare-string form (`context:page("Project", …)`, which lets archetect
+derive a key from the title) is not used.
+
+**A prompt that depends on an earlier answer sits in the SAME page as what it depends on.**
+`messaging_access` lives inside the `messaging` section, not on a later page; the GitHub repository
+details live inside `source_control`. That page simply comes back with one more field and the
+client stays on the step — progressive disclosure, rather than a step that vanishes and reappears
+elsewhere. Measured on java-rest: full shapes converge in 5 rounds, overlays 6, basic 3.
+
+**What this standard does NOT restate.** That a declaration becomes a layout in the derived
+interface is archetect's bar, held by its own suite; asserting it here would be a second statement
+of one thing. What is held here is that our archetypes declare the vocabulary above — the part
+only we can get wrong.
+
 ### S1b — The prompt surface is a declared interface
 
 <!-- claim: prompt-surface-conformance -->
