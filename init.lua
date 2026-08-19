@@ -1681,11 +1681,14 @@ function p6m.standards.layout(g, shape, opts)
 
   local script = fs.read(root .. "/archetype.lua")
 
-  -- every page/section declaration, as { verb, key }
+  -- Every page/section declaration, as { verb, key }. Two loops rather than one alternation:
+  -- Lua patterns have no `|`, and a pattern that silently matches nothing would report a
+  -- conforming archetype as declaring no layout at all.
   local declared = {}
-  for verb, body in script:gmatch("[:%.](page|section)%(%s*{(.-)}%s*,") do
-    local key = body:match('key%s*=%s*"([%w_]+)"')
-    declared[#declared + 1] = { verb = verb, key = key, body = body }
+  for _, verb in ipairs({ "page", "section" }) do
+    for body in script:gmatch("[:%.]" .. verb .. "%(%s*{(.-)}%s*,") do
+      declared[#declared + 1] = { verb = verb, key = body:match('key%s*=%s*"([%w_]+)"'), body = body }
+    end
   end
 
   g:test("declares only the fleet's page and section keys", {
