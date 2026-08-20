@@ -308,15 +308,22 @@ The main-branch-only path (docker publish, cut-tag, manifest dispatch, real org 
 (`p6m-archetypes/archetype-e2e-tests`), which renders into a real org and watches the real
 workflow. The two tiers meet at this seam and must not duplicate each other.
 
-## 2b. The overlay ("empty") archetypes — E1–E7 (2026-07-27)
+## 2b. The retrofit overlay archetypes — E1–E7 (2026-07-27)
 
 The six `*-service-empty-archetype` repos are a different kind of thing from the eighteen service
-archetypes, and holding them to S1–S10 mostly asks the wrong questions. An **overlay** archetype
-retrofits an **existing** application: it renders only the platform servicing layer — CI/CD
-workflows, container builds, platform manifests, repo hygiene — **in place at the destination
-root**, and never a line of project scaffolding. Nothing is generated that could be booted, so S2
-(API), S4–S7 (logging/health/metrics/traces) and S10 (CI parity — there is no rendered project
-whose CI could be run) have no subject here.
+archetypes, and holding them to S1–S10 mostly asks the wrong questions. A **retrofit overlay**
+archetype targets an **existing** application: it renders only the platform servicing layer —
+CI/CD workflows, container builds, platform manifests, repo hygiene — **in place at the
+destination root**, and never a line of project scaffolding. Nothing is generated that could be
+booted, so S2 (API), S4–S7 (logging/health/metrics/traces) and S10 (CI parity — there is no
+rendered project whose CI could be run) have no subject here.
+
+Naming note (2026-08-20): the catalog displays these as `<Lang> Retrofit Overlay`. The catalog
+leaf key (`p6m/<lang>/services/empty`), the repo names (`*-service-empty-archetype`) and the
+plugin namespace (`p6m.empty.*`) still read `empty` — deliberately, since a leaf key is a route
+Studio deep-links and the namespace is internal API, and neither is user-visible. Prose in this
+document says "retrofit overlay"; identifiers say `empty`. The shape vocabulary in S1c already
+says `overlay` (`p6m.LAYOUT.required.overlay`).
 
 What replaces them is stricter on the axes that *do* exist. The failure modes of a retrofit are
 not "the service answers the wrong route"; they are "the generator wrote a `pom.xml` into
