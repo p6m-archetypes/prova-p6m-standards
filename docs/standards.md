@@ -1,7 +1,7 @@
 # p6m Service Standards — the executable bar
 
 This document is the spec the `p6m` prova plugin turns into proofs. Every p6m service archetype
-(6 languages × {grpc, rest, graphql, basic, empty}) must render services that pass the same
+(6 languages × {grpc, rest, graphql, basic, retrofit}) must render services that pass the same
 parameterized suite. The goal: **12-factor services that are nearly indistinguishable from each
 other at runtime** — same API for the same inputs, same logging, same health surface, same
 metrics/traces, same container story.
@@ -318,12 +318,16 @@ destination root**, and never a line of project scaffolding. Nothing is generate
 booted, so S2 (API), S4–S7 (logging/health/metrics/traces) and S10 (CI parity — there is no
 rendered project whose CI could be run) have no subject here.
 
-Naming note (2026-08-20): the catalog displays these as `<Lang> Retrofit Overlay`. The catalog
-leaf key (`p6m/<lang>/services/empty`), the repo names (`*-service-empty-archetype`) and the
-plugin namespace (`p6m.empty.*`) still read `empty` — deliberately, since a leaf key is a route
-Studio deep-links and the namespace is internal API, and neither is user-visible. Prose in this
-document says "retrofit overlay"; identifiers say `empty`. The shape vocabulary in S1c already
-says `overlay` (`p6m.LAYOUT.required.overlay`).
+Naming note (2026-08-20): the catalog displays these as `<Lang> Retrofit Overlay`, and the leaf
+key is `p6m/<lang>/services/retrofit` — renamed from `empty`, which read as "blank project", the
+opposite of what these archetypes do. Everything a user sees now says retrofit.
+
+The identifiers deliberately do not follow, and that is a **closed decision, not a backlog item**:
+the repos stay `*-service-empty-archetype` and the plugin namespace stays `p6m.empty.*`. Neither
+is user-visible; renaming the repos would move every `source:` URL and break the 30-repo inventory
+that keys on the string `service-empty-archetype`; and S1c's shape vocabulary already says
+`overlay` (`p6m.LAYOUT.required.overlay`), so the standard carries the modern term where it
+matters. Prose in this document says "retrofit overlay"; identifiers say `empty`.
 
 What replaces them is stricter on the axes that *do* exist. The failure modes of a retrofit are
 not "the service answers the wrong route"; they are "the generator wrote a `pom.xml` into

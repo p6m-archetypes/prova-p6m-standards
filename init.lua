@@ -747,14 +747,15 @@ function p6m.render(s, opts)
   end)
 end
 
--- ── E1–E7: the overlay ("empty") archetypes ─────────────────────────────────────────────────────
+-- ── E1–E7: the retrofit overlay archetypes (namespace stays `empty`) ────────────────────────────
 --
--- An overlay archetype retrofits an EXISTING application: it renders only the platform servicing
--- layer (CI/CD workflows, container builds, platform manifests, repo hygiene) IN PLACE at the
--- destination root, and never a line of project scaffolding. Nothing it emits can be booted, so
--- S2 and S4-S7 have no subject and S10 has no rendered project whose CI could run. What replaces
--- them is stricter containment (E3), a non-destructive retrofit (E4), and cross-artifact coherence
--- of the CI/CD wiring (E5) — the seams that actually break a legacy app's first deploy.
+-- A retrofit overlay archetype targets an EXISTING application: it renders only the platform
+-- servicing layer (CI/CD workflows, container builds, platform manifests, repo hygiene) IN PLACE
+-- at the destination root, and never a line of project scaffolding. Nothing it emits can be
+-- booted, so S2 and S4-S7 have no subject and S10 has no rendered project whose CI could run.
+-- What replaces them is stricter containment (E3), a non-destructive retrofit (E4), and
+-- cross-artifact coherence of the CI/CD wiring (E5) — the seams that actually break a legacy
+-- app's first deploy.
 -- The spec is docs/standards.md §2b.
 
 p6m.empty = {}

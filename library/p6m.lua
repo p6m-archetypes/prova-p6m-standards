@@ -108,7 +108,7 @@ p6m.ci.stacks = {}
 function p6m.ci.dockerfile(stack, opts) end
 
 ------------------------------------------------------------------------------------------
--- p6m.empty — the overlay ("empty") archetypes, E1–E7 (docs/standards.md §2b)
+-- p6m.empty — the retrofit overlay archetypes, E1–E7 (docs/standards.md §2b)
 ------------------------------------------------------------------------------------------
 
 ---@class p6m.OverlaySpec
