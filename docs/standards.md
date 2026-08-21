@@ -196,7 +196,7 @@ language or shape:
 | `project` | `platform`, `service` | all |
 | `container_build` | — | overlay only |
 | `resources` | `persistence`, `cache`, `messaging`, `object_storage` | full (overlay carries the page without sections) |
-| `source_control` | — | all |
+| `source_control` | — | all, unless the caller passes `-s no-scm` (S1d) |
 
 Grouping intent is the one thing a derived interface cannot infer from the script — only the
 author has it — so the script says it, once, in a vocabulary the fleet shares. **A shape omits a
@@ -220,6 +220,50 @@ elsewhere. Measured on java-rest: full shapes converge in 5 rounds, overlays 6, 
 interface is archetect's bar, held by its own suite; asserting it here would be a second statement
 of one thing. What is held here is that our archetypes declare the vocabulary above — the part
 only we can get wrong.
+
+### S1d — The caller may own source control (2026-08-21)
+
+<!-- claim: scm-handoff -->
+Every archetype takes a `no-scm` switch. With it, the `source_control` page is not declared and
+`scm.finalize` never runs; without it — the CLI, which supplies no switches — both happen
+exactly as before. The switch changes **the prompt surface and the git side effects, never the
+rendered files**.
+
+Ybor Studio's `generator-service` creates the repository and packages the output itself, so the
+archetype has to be able to stand down. Answering `scm_provider = "None"` is not that: the page
+still derives, and a client that renders the interface as a form shows a step that asks nothing.
+
+```
+$ archetect interface <archetype>              $ archetect interface <archetype> -s no-scm
+  ▸ PAGE Project                                 ▸ PAGE Project
+  ▸ PAGE Container Build                         ▸ PAGE Container Build
+  ▸ PAGE Resources                               ▸ PAGE Resources
+  ▸ PAGE Source Control
+```
+
+**Negative polarity is the whole design.** Switches are never prompted, so whichever behavior the
+switch selects is unreachable from an interactive run. The default therefore has to be the
+interactive path, and the programmatic caller is the one that opts out. It is named for the
+effect rather than for Studio, so a CI job that wants no repository created can pass it without
+pretending to be a client it isn't. `archetect interface` lists it alongside `zip`, `tarball`
+and `debug-context`, which is how a client discovers it.
+
+**The zip half of the same hand-off needs no switch of its own.** `archive-library` has no
+prompts and is already opt-in (`-s zip` / `-s tarball`, both off by default), so a caller that
+packages the output itself simply does not pass them.
+
+**How it is held.** Two tests, because the switch has two failure modes:
+
+- *The guard is dropped* — held on the SCRIPT, the same way S1c is: strip every
+  `if not <guard> then … end` block and assert that neither `scm.prompt`, `scm.finalize`, nor
+  the `source_control` declaration survives in what runs unconditionally. A guard written some
+  other shape simply is not stripped and reads as unguarded, so the check fails closed.
+- *The guard is wired around content* — held BLACK-BOX: render with the switch and without it,
+  and assert both write the identical file set. Without this, a guard that also skipped a
+  `directory.render` would ship a second, quieter render shape to whoever passes the switch.
+
+Both were mutation-tested on 2026-08-21: unguarding `scm.finalize` fails the first, moving
+`directory.render("contents/base", …)` inside the guard fails the second.
 
 ### S1b — The prompt surface is a declared interface
 

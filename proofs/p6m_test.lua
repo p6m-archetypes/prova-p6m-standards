@@ -582,4 +582,13 @@ prova.describe("layout vocabulary", function()
 		table.sort(shapes)
 		t:expect(table.concat(shapes, ",")):equals("basic,full,overlay")
 	end)
+
+	prova.test("the SCM hand-off switch is named, and the name does not drift", {
+		covers = "docs/standards.md#scm-handoff",
+		proves = "S1d: the switch is a contract Ybor Studio passes from its own codebase. Renaming "
+			.. "it here would keep all thirty archetype suites green and silently stop removing "
+			.. "the page for the one caller the switch exists for",
+	}, function(t)
+		t:expect(p6m.SCM_SWITCH, "the fleet's SCM switch"):equals("no-scm")
+	end)
 end)

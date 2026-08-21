@@ -1239,6 +1239,24 @@ function p6m.empty.standards.prompt_surface(g, s, opts)
       end
     end)
   end)
+
+  g:test("the SCM switch moves the prompt surface, never the output", {
+    proves = "S1d's negative control: a guard wired around content instead of around the page "
+      .. "would quietly ship a second, smaller render shape to whoever passes the switch. The "
+      .. "switch is allowed to remove a QUESTION and nothing else",
+  }, function(t)
+    local function tree(label, switches)
+      return table.concat(written(archetect.render{
+        source = source,
+        answers = s.answers,
+        destination = t:tempdir(s.label .. ":s1d:" .. label),
+        switches = switches,
+      }), "\n")
+    end
+    t:expect(tree("switched", { p6m.SCM_SWITCH }),
+      "-s " .. p6m.SCM_SWITCH .. " renders exactly the files an unswitched run does")
+      :equals(tree("plain", nil))
+  end)
 end
 
 --- E4: retrofit is additive. Seeds a fake legacy application, renders the overlay over it, and
@@ -1572,6 +1590,18 @@ p6m.PROMPT_LIBRARIES = {
   "platform-application-manifests",
 }
 
+--- S1d: the switch a caller flips when IT owns source control.
+---
+--- Ybor Studio's generator-service creates the repository and packages the output itself, so the
+--- archetype must be able to stand down — not merely answer `scm_provider = "None"`, which leaves
+--- an empty "Source Control" step in the derived interface for Studio to render as a dead form
+--- page. The switch removes the page; the CLI, which supplies no switches, keeps it.
+---
+--- Negative polarity is deliberate: switches are never prompted, so the DEFAULT must be the
+--- interactive path and the programmatic caller opts out. Named for the effect rather than the
+--- caller, so a CI run that wants no repo created can use it without pretending to be Studio.
+p6m.SCM_SWITCH = "no-scm"
+
 --- The libraries the fleet retired, named so the failure says WHY rather than "not in the list".
 p6m.RETIRED_PROMPT_LIBRARIES = {
   ["author"] = "author identity reached four files fleet-wide and archetect pre-answers it from ~/.gitconfig",
@@ -1636,6 +1666,24 @@ function p6m.standards.prompt_surface(g, s, opts)
     t:expect((manifest.catalog or {})["p6m-identity"],
       "archetype.yaml composes p6m-identity"):never():is_nil()
   end)
+
+  g:test("the SCM switch moves the prompt surface, never the output", {
+    proves = "S1d's negative control: a guard wired around content instead of around the page "
+      .. "would quietly ship a second, smaller render shape to whoever passes the switch. The "
+      .. "switch is allowed to remove a QUESTION and nothing else",
+  }, function(t)
+    local function tree(label, switches)
+      return table.concat(written(archetect.render{
+        source = source,
+        answers = s.answers,
+        destination = t:tempdir(s.label .. ":s1d:" .. label),
+        switches = switches,
+      }), "\n")
+    end
+    t:expect(tree("switched", { p6m.SCM_SWITCH }),
+      "-s " .. p6m.SCM_SWITCH .. " renders exactly the files an unswitched run does")
+      :equals(tree("plain", nil))
+  end)
 end
 
 
@@ -1665,6 +1713,24 @@ p6m.LAYOUT = {
     overlay = { "project", "container_build", "resources", "source_control" },
   },
 }
+
+--- Delete every `if not <guard> then … end` block from the script, so what REMAINS is the code
+--- that runs unconditionally. Indentation-matched rather than parsed: the fleet authors these
+--- guards at one indent level and closes them with a bare `end` in the same column, which is what
+--- lets a text check balance them without a Lua parser. A guard written some other way simply
+--- isn't stripped, and the code inside it reads as unguarded — the check fails closed.
+local function without_guarded_blocks(script, guard_local)
+  local out, skip_indent = {}, nil
+  for line in (script .. "\n"):gmatch("([^\n]*)\n") do
+    if skip_indent then
+      if line == skip_indent .. "end" then skip_indent = nil end
+    else
+      local indent = line:match("^(%s*)if not " .. guard_local .. " then%s*$")
+      if indent then skip_indent = indent else out[#out + 1] = line end
+    end
+  end
+  return table.concat(out, "\n")
+end
 
 --- S1c: the archetype declares the fleet's layout vocabulary, and pins its keys.
 ---
@@ -1750,6 +1816,34 @@ function p6m.standards.layout(g, shape, opts)
       for verb in script:gmatch('[:%.](section)%(%s*"') do
         t:expect(false, "bare-string `" .. verb .. "(\"…\")` derives a key from the title"):is_true()
       end
+    end)
+  end)
+
+  g:test("stands down from source control when the caller owns it", {
+    proves = "S1d: Ybor Studio's generator-service creates the repository itself, and answering "
+      .. "`scm_provider = None` does not spare it the step — the page still derives, and Studio "
+      .. "renders a form page that asks nothing. The `" .. p6m.SCM_SWITCH .. "` guard is what "
+      .. "removes the page, so an archetype that drops it silently puts the dead step back",
+  }, function(t)
+    -- The switch name carries a hyphen, which is a Lua pattern quantifier — escape it, or the
+    -- pattern silently matches `noscm` and reports every conforming archetype as unguarded.
+    local switch_pat = p6m.SCM_SWITCH:gsub("%p", "%%%0")
+    local guard = script:match(
+      'local%s+([%w_]+)%s*=%s*archetype%.switches%.is_enabled%("' .. switch_pat .. '"%)')
+    t:expect(guard, 'the script binds `archetype.switches.is_enabled("' .. p6m.SCM_SWITCH
+      .. '")` to a local'):never():is_nil()
+    if not guard then return end
+
+    -- What survives the guard blocks is what runs on every render, switch or no switch.
+    local always = without_guarded_blocks(script, guard)
+    t:expect_all(function()
+      for _, call in ipairs({ "scm.prompt", "scm.finalize" }) do
+        t:expect(always:find(call, 1, true),
+          "`" .. call .. "` runs outside the `" .. p6m.SCM_SWITCH .. "` guard"):is_nil()
+      end
+      t:expect(always:match('key%s*=%s*"source_control"'),
+        'the `source_control` page is declared outside the guard, so it still derives under -s '
+          .. p6m.SCM_SWITCH):is_nil()
     end)
   end)
 end
