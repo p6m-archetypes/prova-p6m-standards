@@ -1,19 +1,30 @@
 # One manifest, two hats. In Prova a package is one prova.toml-rooted unit; this one both exports a
-# namespace (a plugin — `[plugin]`) and runs its own proofs (a suite). Author the plugin in
+# namespace (a package — `[package]`) and runs its own proofs (a suite). Author the package in
 # init.lua; prove it in proofs/; ship both together.
-[plugin]
+[package]
 name        = "p6m"
 description = "p6m platform standards as executable proofs — one parameterized suite every service archetype must pass"
 license     = "MIT"
 
-# The range of prova versions this plugin is built against; a consumer is checked against it.
+# The range of prova versions this package is built against; a consumer is checked against it.
+# 0.19 is the floor because E4 ("leaves the application's own hygiene files alone") holds only
+# once the in-proof render engine honors the if_exists policy — prova v0.19.0.
 [requires]
-prova = ">=0.3"
+prova = ">= 0.19"
 
-# Resolve THIS plugin from its own directory, so the self-tests can `require("p6m")` exactly as
+# Resolve THIS package from its own directory, so the self-tests can `require("p6m")` exactly as
 
 # a consumer would. A CONSUMER instead pins it by source — a released tag:
 #   p6m = { git = "https://github.com/p6m-archetypes/prova-p6m-standards", tag = "v1" }
 
-[plugins]
+[dependencies]
 p6m = { path = "." }
+
+# The prose layer. docs/standards.md states each standard under a claim anchor; a proof binds to
+# one with `covers = "docs/standards.md#<id>"`, which is what lets a consumer ask the sharpest
+# available question of an upstream obligation — `prova attest docs/standards.md#<id>`: did the
+# proof covering this claim actually execute and pass in the recorded run? Prose alone cannot
+# satisfy it, and neither can a suite that skipped the proof.
+[[specs.source]]
+type = "directory"
+path = "docs/standards.md"
