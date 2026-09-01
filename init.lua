@@ -773,6 +773,7 @@ p6m.empty.PLATFORM_LAYER = {
   -- CI
   ".github/workflows/build.yaml",
   ".github/workflows/cut-tag.yaml",
+  ".github/workflows/promote.yaml",
   -- container builds (the prd one is what CI publishes and the platform deploys)
   ".platform/docker/local/Dockerfile",
   ".platform/docker/prd/Dockerfile",
@@ -1164,6 +1165,70 @@ function p6m.empty.standards.cicd(g, project, s, opts)
     -- Both resolve through workflow env, which the sibling test pinned to the application name.
     t:expect(dispatch["with"]["directory-name"], "directory-name"):equals("${{ env.APPLICATION_NAME }}")
     t:expect(dispatch["with"]["image-name"], "image-name"):equals("${{ env.IMAGE_NAME }}")
+  end)
+
+  -- The promotion tail. dev deploys automatically on merge (the dispatch step above); stg and prd
+  -- move only by manual dispatch of promote.yaml, replaying the digest the build recorded in its
+  -- GitHub release. The seams are the same E5 kind — promote and build are two artifacts, and a
+  -- disagreement means a promotion that runs green and deploys nothing.
+
+  local function promote_workflow(t)
+    return yaml.decode(fs.read(t:use(project).path .. "/.github/workflows/promote.yaml"))
+  end
+
+  g:test("the promote workflow dispatches over the manual promotion environments", {
+    promises = cd_spec,
+    proves = cd_spec == nil
+      and "E5: dev deploys automatically on merge, so every LATER environment must be reachable by"
+        .. " manual dispatch — without promote.yaml a release can never leave dev"
+      or nil,
+  }, function(t)
+    local wf = promote_workflow(t)
+    local dispatch = (wf[true] or wf["on"]).workflow_dispatch
+    t:expect(dispatch, "a workflow_dispatch trigger"):never():is_nil()
+    t:expect(dispatch.inputs and dispatch.inputs.tag, "a tag input"):never():is_nil()
+    local choices = dispatch.inputs and dispatch.inputs.environment
+      and dispatch.inputs.environment.options
+    -- The promotion order minus dev, computed from ENVIRONMENTS so the chain has one author.
+    local manual = {}
+    for _, env in ipairs(p6m.empty.ENVIRONMENTS) do
+      if env ~= "dev" then manual[#manual + 1] = env end
+    end
+    t:expect(table.concat(choices or {}, ","), "environment choices")
+      :equals(table.concat(manual, ","))
+  end)
+
+  g:test("the promote step promotes the same application the build published", {
+    promises = cd_spec,
+    proves = cd_spec == nil
+      and "E5: promote.yaml's image-name and directory-name must equal build.yaml's, or an stg/prd"
+        .. " promotion dispatches into a manifest directory CD never populated"
+      or nil,
+  }, function(t)
+    local build_env = workflow(t).env or {}
+    local wf = promote_workflow(t)
+    local step = step_using(wf.jobs.promote.steps, "release%-promote%-to%-environment")
+    t:expect(step, "a release-promote-to-environment step"):never():is_nil()
+    local env = wf.env or {}
+    t:expect(env.IMAGE_NAME, "IMAGE_NAME"):equals(build_env.IMAGE_NAME)
+    t:expect(env.APPLICATION_NAME, "APPLICATION_NAME"):equals(build_env.APPLICATION_NAME)
+    -- Both resolve through promote.yaml's env, pinned to build.yaml's just above.
+    t:expect(step["with"]["image-name"], "image-name"):equals("${{ env.IMAGE_NAME }}")
+    t:expect(step["with"]["directory-name"], "directory-name"):equals("${{ env.APPLICATION_NAME }}")
+    t:expect(step["with"]["tag"], "tag"):equals("${{ inputs.tag }}")
+    t:expect(step["with"]["environment"], "environment"):equals("${{ inputs.environment }}")
+  end)
+
+  g:test("the build's release carries the digest artifact promotion replays", {
+    promises = cd_spec,
+    proves = cd_spec == nil
+      and "E5: release-promote-to-environment downloads `digest.txt` from the release named by the"
+        .. " tag; a build that renames or drops the artifact leaves every tag it cut unpromotable"
+      or nil,
+  }, function(t)
+    local release = step_using(workflow(t).jobs.build.steps, "ncipollo/release%-action")
+    t:expect(release, "a release-creating step"):never():is_nil()
+    t:expect(release["with"].artifacts, "release artifacts"):equals("digest.txt")
   end)
 
   g:test("the dev overlay renames the same image repository the manifest deploys", function(t)
