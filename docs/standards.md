@@ -304,7 +304,9 @@ from one object, so a suite cannot answer the archetype one thing and assert ano
 (`prova-rs/prova-postgres@v1` etc. — released 2026-07-22), `acceptance.yaml` on
 `prova-rs/run-action@v1` **with no local `version:`** (§2b E7), `.last-failed.json` gitignored.
 Rendered-project CI: all six languages get the full build→docker→push→manifest-dispatch pipeline
-on `p6m-actions/*`.
+on `p6m-actions/*`, plus the promotion tail (2026-08-31): a rendered `promote.yaml` that moves a
+release to stg/prd by manual dispatch of `p6m-actions/release-promote-to-environment@v1` — held
+at the E5 seams, since the same ci-libraries render CI for every shape.
 
 > **Corrected 2026-08-17 (YP6M-3424).** This line used to require the opposite — an *explicit*
 > `version:` — while E7's proof has forbidden one since v1.10. The proof was right and the prose
@@ -487,6 +489,13 @@ asserted **across** artifacts, not within one:
   writes into in the manifests repo)
 - `PlatformApplication.spec.deployment.image` == `{registry}/{solution}/{application}:latest`
 - the dev overlay's kustomize image rename targets that same repository
+- `promote.yaml` (added 2026-08-31) dispatches over the manual promotion environments — stg and
+  prd, dev being automatic on merge — and its `release-promote-to-environment` step promotes the
+  same `IMAGE_NAME`/`APPLICATION_NAME` that `build.yaml` published; a mismatch is a promotion
+  that runs green and updates a manifest directory CD never populated
+- the build's release attaches `digest.txt` — the artifact name
+  `release-promote-to-environment` downloads when a tag is promoted, so a build that renames or
+  drops it leaves every tag it cut unpromotable
 
 **Closed on golang (2026-07-27).** golang used to be the exception here: `golang-ci-library`'s
 `build.yaml` stopped at `go build` / `go test` — no `env:` block, no image publish, no release, no
