@@ -203,6 +203,9 @@ prova.describe("s10 ci parity", function()
 			.. " it. The very ref that was missing is the positive case now — it exists because the"
 			.. " incident forced its release",
 	}, function(t)
+		if not p6m.ci.actions_host_reachable() then
+			t:skip("github.com is unreachable from this environment")
+		end
 		t:expect(p6m.ci.action_ref_resolves("p6m-actions/release-promote-to-environment", "v1"),
 			"the once-missing tag resolves today"):is_true()
 		t:expect(p6m.ci.action_ref_resolves("p6m-actions/release-promote-to-environment", "v999"),

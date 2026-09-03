@@ -475,16 +475,42 @@ p6m.ci = {}
 ---@param ref string  # the pin after `@`
 ---@return boolean
 local resolved_action_refs = {}
+
+-- Deliberately UNAUTHENTICATED (credential helpers off): the consumer of record is a rendered
+-- project's runner in a CUSTOMER org, which holds no p6m credentials — "resolves" means the ref
+-- exists AND the repo is visible to that consumer. An authenticated probe would bless what the
+-- fleet cannot use: release-promote-to-environment sat `internal` while every sibling was
+-- public (measured 2026-09-03, the same incident that shipped promote.yaml against its missing
+-- v1), and a dev machine's ambient credentials saw it fine — which is exactly how the gap hid.
+local function git_ls_remote(repo, refspecs)
+  return shell.run({
+    "git", "-c", "credential.helper=", "ls-remote",
+    "https://github.com/" .. repo .. ".git",
+    refspecs[1], refspecs[2] or refspecs[1],
+  }, { timeout = "30s", env = { GIT_TERMINAL_PROMPT = "0" } })
+end
+
 function p6m.ci.action_ref_resolves(repo, ref)
   local key = repo .. "@" .. ref
   if resolved_action_refs[key] == nil then
-    local r = shell.run({
-      "git", "ls-remote", "https://github.com/" .. repo .. ".git",
-      "refs/tags/" .. ref, "refs/heads/" .. ref,
-    }, { timeout = "30s" })
+    local r = git_ls_remote(repo, { "refs/tags/" .. ref, "refs/heads/" .. ref })
     resolved_action_refs[key] = r.code == 0 and type(r.stdout) == "string" and r.stdout:find("%S") ~= nil
   end
   return resolved_action_refs[key]
+end
+
+--- Can this environment reach github.com at all? A canary against a public repo known to exist
+--- (repository-release — the release machinery itself); cached per run. Proofs gate on this and
+--- SKIP where it is false: with no network, "does the ref resolve" has no honest answer either
+--- way, and a false FAIL teaches the wrong lesson.
+---@return boolean
+local actions_host_reachable_verdict = nil
+function p6m.ci.actions_host_reachable()
+  if actions_host_reachable_verdict == nil then
+    local r = git_ls_remote("p6m-actions/repository-release", { "HEAD" })
+    actions_host_reachable_verdict = r.code == 0 and type(r.stdout) == "string" and r.stdout:find("%S") ~= nil
+  end
+  return actions_host_reachable_verdict
 end
 
 --- The command sequences the rendered projects' CI pipelines run (the `p6m-actions` setup +
@@ -1272,6 +1298,10 @@ function p6m.empty.standards.cicd(g, project, s, opts)
       .. " Org-owned refs only: community actions are not ours to release, and the render already"
       .. " fetches from the same network this asks one ls-remote per unique ref of",
   }, function(t)
+    if not p6m.ci.actions_host_reachable() then
+      t:skip("github.com is unreachable from this environment — with no network, ref"
+        .. " resolvability has no honest answer either way")
+    end
     local root = t:use(project).path
     local refs = {}
     for _, wf in ipairs(fs.glob(root, ".github/workflows/*.yaml")) do
