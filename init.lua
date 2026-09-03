@@ -818,9 +818,10 @@ p6m.empty.PLATFORM_LAYER = {
   ".editorconfig",
   ".gitattributes",
   ".gitignore",
-  -- CI
+  -- CI. cut-tag.yaml is deliberately absent (retired 2026-09-03, YP6M-3663): the version level
+  -- is an input of build.yaml's workflow_dispatch, so a render that still ships a tag-only
+  -- workflow fails containment here.
   ".github/workflows/build.yaml",
-  ".github/workflows/cut-tag.yaml",
   ".github/workflows/promote.yaml",
   -- container builds (the prd one is what CI publishes and the platform deploys)
   ".platform/docker/local/Dockerfile",
@@ -1270,6 +1271,26 @@ function p6m.empty.standards.cicd(g, project, s, opts)
     -- Both resolve through workflow env, which the sibling test pinned to the application name.
     t:expect(dispatch["with"]["directory-name"], "directory-name"):equals("${{ env.APPLICATION_NAME }}")
     t:expect(dispatch["with"]["image-name"], "image-name"):equals("${{ env.IMAGE_NAME }}")
+  end)
+
+  g:test("a manual release is the same pipeline at a chosen version level", {
+    covers = "docs/standards.md#cut-tags-are-promotable",
+    proves = "DECIDED 2026-09-03: the version level is an INPUT of the one pipeline, not a second"
+      .. " workflow with its own tail — the retired tag-only cut minted tags with no release and"
+      .. " no digest, unpromotable by construction (Maks). The dispatch input and its wiring are"
+      .. " the whole mechanism; cut-tag.yaml's absence is held by E3's allowlist",
+  }, function(t)
+    local build = workflow(t)
+    local on = build[true] or build["on"]
+    local input = on.workflow_dispatch
+      and on.workflow_dispatch.inputs
+      and on.workflow_dispatch.inputs["version-level"]
+    t:expect(input, "a version-level dispatch input"):never():is_nil()
+    t:expect(table.concat((input or {}).options or {}, ","), "the levels"):equals("patch,minor,major")
+    local cut = step_using(build.jobs.build.steps, "cut%-tag")
+    t:expect(cut, "a cut-tag step in the build job"):never():is_nil()
+    t:expect(cut["with"]["version-level"], "the cut step wires the input")
+      :equals("${{ inputs.version-level || 'patch' }}")
   end)
 
   -- The promotion tail. dev deploys automatically on merge (the dispatch step above); stg and prd
