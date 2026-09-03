@@ -1221,6 +1221,22 @@ function p6m.empty.standards.cicd(g, project, s, opts)
     t:expect(build.jobs and build.jobs.build, "a `build` job"):never():is_nil()
   end)
 
+  g:test("the build workflow triggers once per change", {
+    covers = "docs/standards.md#ci-single-trigger",
+    proves = "DECIDED 2026-09-03: push:[main] + pull_request (+ workflow_dispatch for ad-hoc runs)."
+      .. " The pull_request run tests the MERGE ref — what main becomes — and the main push owns"
+      .. " the release tail; push:['**'] + pull_request built every in-repo PR twice (Maks)."
+      .. " NOTE the rendered workflow spells pull_request/workflow_dispatch as `{}`: a bare"
+      .. " `pull_request:` decodes to a nil-valued (absent) key, unassertable from Lua",
+  }, function(t)
+    local build = workflow(t)
+    local on = build[true] or build["on"]
+    t:expect(on.push and on.push.branches, "push filters branches"):never():is_nil()
+    t:expect(table.concat(on.push.branches, ","), "push builds main only"):equals("main")
+    t:expect(on.pull_request ~= nil, "pull_request builds the merge ref"):is_true()
+    t:expect(on.workflow_dispatch ~= nil, "workflow_dispatch covers ad-hoc runs"):is_true()
+  end)
+
   g:test("the build workflow names the application as its image", { promises = cd_spec }, function(t)
     local env = workflow(t).env or {}
     t:expect(env.IMAGE_NAME, "IMAGE_NAME"):equals(s.application)

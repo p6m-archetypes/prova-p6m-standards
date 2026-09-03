@@ -626,7 +626,7 @@ The toolchain version is answered or read from the app, never assumed — E1b ge
 <!-- backlog: cut-tag-runs-on-legacy recorded=2026-09-03 -->
 Every language's version machinery runs on a repository the archetype did not scaffold. golang-cut-tag already holds the shape (tag-driven; its version file is optional — E5 records why). dotnet-cut-tag hard-fails on a missing Directory.Build.props ('not found at Directory.Build.props', measured 2026-09-03 on max-dotnet-app) — and Directory.Build.props is OUR convention, not a .NET given, so every brownfield dotnet retrofit's main build dies at the cut-patch step. The bar: cut-tag actions fall back to tag-driven versioning when the conventional version file is absent, in every language whose file is convention rather than ecosystem-mandatory.
 
-<!-- backlog: ci-single-trigger recorded=2026-09-03 -->
+<!-- claim: ci-single-trigger recorded=2026-09-03 -->
 A rendered build workflow runs ONCE per change: today build.yaml triggers on push branches:[**] AND pull_request, so every PR from an in-repo branch builds twice (reported by Maks 2026-09-03). Decide the shape (push:[main] + pull_request is the platform norm; direct-to-main pushes and PR heads each build exactly once) and hold it across all six ci-libraries with an E5-style assertion on the trigger block.
 
 <!-- backlog: cut-tags-are-promotable recorded=2026-09-03 -->
