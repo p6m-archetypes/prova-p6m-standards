@@ -620,7 +620,7 @@ p6m = { git = "https://github.com/p6m-archetypes/prova-p6m-standards", tag = "v1
 - **Phase 4 — platform manifests.** livenessProbe added; contract keys asserted against
   `p6m.identity` from the same suite.
 
-<!-- backlog: retrofit-toolchain-answered recorded=2026-09-03 -->
+<!-- claim: retrofit-toolchain-answered recorded=2026-09-03 -->
 The toolchain version is answered or read from the app, never assumed — E1b generalized off the container build onto CI. Measured 2026-09-03 on the first external retrofit tests: dotnet-service-empty pinned .NET 9 against a .NET 10 app (Maks, max-dotnet-app); js-pnpm-setup@v1 installed Node 18 under a Next.js 16 app that requires >=20.9, so lint/test/build all die instantly (Jose, jose-next-app); pnpm >=10 refused esbuild postinstall scripts the app never allowlisted (max-ts-app, ERR_PNPM_IGNORED_BUILDS). The bar: setup actions honor the repo's own declarations (global.json / TargetFramework, .nvmrc / engines / packageManager, pnpm.onlyBuiltDependencies) with the archetype's default only as fallback, and the overlay renders the version answer into both CI and Dockerfiles from one source.
 
 <!-- backlog: cut-tag-runs-on-legacy recorded=2026-09-03 -->
@@ -635,5 +635,8 @@ Any tag the machinery cuts is promotable: promote replays digest.txt from the Gi
 <!-- backlog: retrofit-health-not-assumed recorded=2026-09-03 -->
 The overlay must not make the platform probe an endpoint the application does not serve: manifests wire readiness to /health/readiness on MANAGEMENT_PORT, but a legacy app has no management server (Maks's test app deployed and sat unready, 2026-09-03; his fix commit was 'fix readiness'). Decide the retrofit posture — a health answer (endpoint+port, defaulted to the platform contract), a generated sidecar/shim, or documented app-side adoption as a retrofit prerequisite — and hold E6 to whichever is chosen so a mismatch fails the suite, not the first deploy.
 
-<!-- backlog: rendered-actions-resolve recorded=2026-09-03 -->
+<!-- claim: rendered-actions-resolve recorded=2026-09-03 -->
 Every action reference a ci-library renders must resolve: promote.yaml shipped fleet-wide calling p6m-actions/release-promote-to-environment@v1 while that repo had ZERO tags — every promotion failed at action resolution (Maks, 2026-09-03; fixed by releasing the action). The bar: for each uses: in every rendered workflow, the referenced repo has the referenced tag — held wherever network is honest (the e2e tier, or a release-train preflight), because a suite that only checks the @pin's SPELLING passes against a tag that does not exist.
+
+<!-- backlog: overlay-dockerignore recorded=2026-09-03 -->
+The overlay renders a .dockerignore beside its Dockerfiles: both say COPY . ., so a retrofit of a real app drags its working tree into the build context — node_modules for typescript (reported by Maks 2026-09-03 on max-ts-app PR #2), target/ for rust, bin/obj for dotnet, __pycache__/.venv for python, vendor for golang, target for java — plus .git in every language. The greenfield archetypes render one in 18 content trees (S8); the six overlays render none, and E3's PLATFORM_LAYER does not even allow one. The bar: .dockerignore joins the platform layer with per-language entries, and an E-test asserts the ignores cover the language's dependency/build trees and .git.

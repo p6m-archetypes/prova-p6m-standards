@@ -466,6 +466,27 @@ end
 
 p6m.ci = {}
 
+--- rendered-actions-resolve: does `owner/repo@ref` exist on its host? One `git ls-remote` per
+--- unique ref per RUN (cached in-process — the same refs render in every variant), asked of tags
+--- AND heads so a branch pin resolves too. The lesson (2026-09-03): a pin's SPELLING can be held
+--- hermetically, but only the host knows whether the tag exists — promote.yaml shipped fleet-wide
+--- against p6m-actions/release-promote-to-environment@v1 while that repo had zero tags.
+---@param repo string # "owner/name"
+---@param ref string  # the pin after `@`
+---@return boolean
+local resolved_action_refs = {}
+function p6m.ci.action_ref_resolves(repo, ref)
+  local key = repo .. "@" .. ref
+  if resolved_action_refs[key] == nil then
+    local r = shell.run({
+      "git", "ls-remote", "https://github.com/" .. repo .. ".git",
+      "refs/tags/" .. ref, "refs/heads/" .. ref,
+    }, { timeout = "30s" })
+    resolved_action_refs[key] = r.code == 0 and type(r.stdout) == "string" and r.stdout:find("%S") ~= nil
+  end
+  return resolved_action_refs[key]
+end
+
 --- The command sequences the rendered projects' CI pipelines run (the `p6m-actions` setup +
 --- build steps), per stack — mirrored HERE and nowhere else, so when an action changes this
 --- table is the one place to follow. Conditional steps keep the action's own guard verbatim
@@ -1244,6 +1265,40 @@ function p6m.empty.standards.cicd(g, project, s, opts)
     t:expect(dev.newName, "local image name"):equals(s.application)
   end)
 
+  g:test("every org-owned action a workflow references resolves on its host", {
+    covers = "docs/standards.md#rendered-actions-resolve",
+    proves = "a pin's spelling can be held hermetically, but only the host knows whether the tag"
+      .. " EXISTS — promote.yaml shipped fleet-wide against an action with zero tags (2026-09-03)."
+      .. " Org-owned refs only: community actions are not ours to release, and the render already"
+      .. " fetches from the same network this asks one ls-remote per unique ref of",
+  }, function(t)
+    local root = t:use(project).path
+    local refs = {}
+    for _, wf in ipairs(fs.glob(root, ".github/workflows/*.yaml")) do
+      local doc = yaml.decode(fs.read(wf))
+      for _, job in pairs(doc.jobs or {}) do
+        for _, step in ipairs(job.steps or {}) do
+          if step.uses then
+            local repo, ref = step.uses:match("^([%w%-%._]+/[%w%-%._]+)@(.+)$")
+            if repo and (repo:find("^p6m%-actions/") or repo:find("^archetect%-actions/")) then
+              refs[repo .. "@" .. ref] = { repo = repo, ref = ref }
+            end
+          end
+        end
+      end
+    end
+    -- Probe before asserting: shell.run yields, and a yield cannot cross expect_all's C boundary.
+    local verdicts = {}
+    for key, r in pairs(refs) do
+      verdicts[key] = p6m.ci.action_ref_resolves(r.repo, r.ref)
+    end
+    t:expect_all(function()
+      for key, ok in pairs(verdicts) do
+        t:expect(ok, key .. " exists on its host"):is_true()
+      end
+    end)
+  end)
+
   g:test("every workflow step is pinned to a version", function(t)
     local root = t:use(project).path
     t:expect_all(function()
@@ -1484,11 +1539,45 @@ end
 --- Everything that is a function of ONE answer set (E3–E6): invoke per variant.
 ---@param opts { source: string?, legacy: table<string,string>?, hygiene: table<string,string>?,
 ---              cd_spec: string? }?
+--- retrofit-toolchain-answered (YP6M-3660): the languages whose overlay has GRADUATED — it
+--- consumes a `toolchain_version` answer in both Dockerfiles. Implementing a language flips its
+--- entry to true in the same commit (the kept promise fails the suite until it does — that is
+--- the graduation mechanism working as designed).
+local TOOLCHAIN_ANSWERED = {}
+
 function p6m.empty.standards.rendering(g, project, s, opts)
   p6m.empty.standards.layout(g, project, s)
   p6m.empty.standards.manifests(g, project, s)
   p6m.empty.standards.cicd(g, project, s, opts)
   p6m.empty.standards.retrofit(g, s, opts)
+
+  -- The render half of retrofit-toolchain-answered, probed E1b-style with a value unlike any
+  -- default so it cannot pass by coincidence — and SELF-rendered (own render, extra answer)
+  -- so the bar holds in every overlay suite before any suite passes the answer itself. The
+  -- action half (setup actions honoring the repo's own toolchain declarations) is the action
+  -- repos' and the e2e tier's to hold; a render cannot observe it.
+  g:test("the toolchain version is answered, never assumed", {
+    covers = "docs/standards.md#retrofit-toolchain-answered",
+    promises = not TOOLCHAIN_ANSWERED[s.language]
+        and "YP6M-3660: measured 2026-09-03 on the first external retrofits — .NET 9 pinned"
+          .. " under a .NET 10 app (max-dotnet-app); Node 18 under a Next.js 16 app that"
+          .. " requires >=20.9 (jose-next-app)"
+      or nil,
+  }, function(t)
+    local answers = {}
+    for k, v in pairs(s.answers) do
+      answers[k] = v
+    end
+    answers.toolchain_version = "99.99-probe"
+    local dest = t:tempdir(s.label .. ":toolchain")
+    archetect.render({ source = (opts and opts.source) or ".", answers = answers, destination = dest })
+    t:expect_all(function()
+      for _, kind in ipairs({ "prd", "local" }) do
+        local df = fs.read(dest .. "/.platform/docker/" .. kind .. "/Dockerfile")
+        t:expect(df, kind .. " Dockerfile bakes the answered toolchain version"):contains("99.99-probe")
+      end
+    end)
+  end)
 end
 
 --- Everything that is a property of the ARCHETYPE REPO rather than of a variant (E2, E7): invoke
