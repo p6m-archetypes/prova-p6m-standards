@@ -619,3 +619,21 @@ p6m = { git = "https://github.com/p6m-archetypes/prova-p6m-standards", tag = "v1
   ci-libraries: bring golang/java/rust to the full docker+CD pipeline; golang onto `p6m-actions`.
 - **Phase 4 — platform manifests.** livenessProbe added; contract keys asserted against
   `p6m.identity` from the same suite.
+
+<!-- backlog: retrofit-toolchain-answered recorded=2026-09-03 -->
+The toolchain version is answered or read from the app, never assumed — E1b generalized off the container build onto CI. Measured 2026-09-03 on the first external retrofit tests: dotnet-service-empty pinned .NET 9 against a .NET 10 app (Maks, max-dotnet-app); js-pnpm-setup@v1 installed Node 18 under a Next.js 16 app that requires >=20.9, so lint/test/build all die instantly (Jose, jose-next-app); pnpm >=10 refused esbuild postinstall scripts the app never allowlisted (max-ts-app, ERR_PNPM_IGNORED_BUILDS). The bar: setup actions honor the repo's own declarations (global.json / TargetFramework, .nvmrc / engines / packageManager, pnpm.onlyBuiltDependencies) with the archetype's default only as fallback, and the overlay renders the version answer into both CI and Dockerfiles from one source.
+
+<!-- backlog: cut-tag-runs-on-legacy recorded=2026-09-03 -->
+Every language's version machinery runs on a repository the archetype did not scaffold. golang-cut-tag already holds the shape (tag-driven; its version file is optional — E5 records why). dotnet-cut-tag hard-fails on a missing Directory.Build.props ('not found at Directory.Build.props', measured 2026-09-03 on max-dotnet-app) — and Directory.Build.props is OUR convention, not a .NET given, so every brownfield dotnet retrofit's main build dies at the cut-patch step. The bar: cut-tag actions fall back to tag-driven versioning when the conventional version file is absent, in every language whose file is convention rather than ecosystem-mandatory.
+
+<!-- backlog: ci-single-trigger recorded=2026-09-03 -->
+A rendered build workflow runs ONCE per change: today build.yaml triggers on push branches:[**] AND pull_request, so every PR from an in-repo branch builds twice (reported by Maks 2026-09-03). Decide the shape (push:[main] + pull_request is the platform norm; direct-to-main pushes and PR heads each build exactly once) and hold it across all six ci-libraries with an E5-style assertion on the trigger block.
+
+<!-- backlog: cut-tags-are-promotable recorded=2026-09-03 -->
+Any tag the machinery cuts is promotable: promote replays digest.txt from the GitHub release named by the tag, but the manual cut-tag workflow only bumps and tags — no release, no image, no digest (Maks, 2026-09-03) — so a manually cut minor/major is unpromotable by construction. Decide: cut-tag triggers the publish tail (tag-push trigger on build, or the cut-tag workflow runs publish+release itself), and hold the E5 seam that every tag-cutting path ends in a release carrying digest.txt.
+
+<!-- backlog: retrofit-health-not-assumed recorded=2026-09-03 -->
+The overlay must not make the platform probe an endpoint the application does not serve: manifests wire readiness to /health/readiness on MANAGEMENT_PORT, but a legacy app has no management server (Maks's test app deployed and sat unready, 2026-09-03; his fix commit was 'fix readiness'). Decide the retrofit posture — a health answer (endpoint+port, defaulted to the platform contract), a generated sidecar/shim, or documented app-side adoption as a retrofit prerequisite — and hold E6 to whichever is chosen so a mismatch fails the suite, not the first deploy.
+
+<!-- backlog: rendered-actions-resolve recorded=2026-09-03 -->
+Every action reference a ci-library renders must resolve: promote.yaml shipped fleet-wide calling p6m-actions/release-promote-to-environment@v1 while that repo had ZERO tags — every promotion failed at action resolution (Maks, 2026-09-03; fixed by releasing the action). The bar: for each uses: in every rendered workflow, the referenced repo has the referenced tag — held wherever network is honest (the e2e tier, or a release-train preflight), because a suite that only checks the @pin's SPELLING passes against a tag that does not exist.
