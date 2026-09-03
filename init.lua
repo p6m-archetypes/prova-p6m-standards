@@ -814,6 +814,7 @@ p6m.empty = {}
 --- Tiltfile) via `spec.extras` — declared, so it is a decision and not an accident.
 p6m.empty.PLATFORM_LAYER = {
   -- repo hygiene (dotfiles only; E3's root rule). A legacy repo keeps its own — see E4.
+  ".dockerignore",
   ".editorconfig",
   ".gitattributes",
   ".gitignore",
@@ -1051,6 +1052,47 @@ function p6m.empty.standards.layout(g, project, s)
 
   g:test("leaves no unrendered template markers", function(t)
     t:expect(t:use(project)):is_fully_rendered()
+  end)
+
+  g:test("the dockerignore keeps the language's build state out of the COPY . . context", {
+    covers = "docs/standards.md#overlay-dockerignore",
+    proves = "both Dockerfiles COPY . ., and CI installs dependencies BEFORE building the image —"
+      .. " so without ignores the runner's node_modules/target/bin ride into the context and can"
+      .. " poison the in-image build (Maks, max-ts-app, 2026-09-03). Asserted on parsed RULES,"
+      .. " never the file's prose — S9's lesson: an assertion a comment can satisfy holds nothing",
+  }, function(t)
+    local raw = fs.read(t:use(project).path .. "/.dockerignore")
+    local rules = {}
+    for line in raw:gmatch("[^\r\n]+") do
+      local l = line:match("^%s*(.-)%s*$")
+      if l ~= "" and not l:match("^#") then
+        rules[#rules + 1] = l
+      end
+    end
+    local function some_rule_names(token)
+      for _, rule in ipairs(rules) do
+        if rule:find(token, 1, true) then
+          return true
+        end
+      end
+      return false
+    end
+    -- The per-language build state a host/CI install produces; golang keeps only the common
+    -- entries (excluding vendor/ would break vendored module builds).
+    local REQUIRED = {
+      typescript = { "node_modules" },
+      rust = { "target" },
+      java = { "target" },
+      dotnet = { "bin", "obj" },
+      python = { "__pycache__", ".venv" },
+      golang = {},
+    }
+    t:expect_all(function()
+      t:expect(some_rule_names(".git"), "a rule excludes .git"):is_true()
+      for _, token in ipairs(REQUIRED[s.language] or {}) do
+        t:expect(some_rule_names(token), "a rule excludes the language's `" .. token .. "`"):is_true()
+      end
+    end)
   end)
 
   g:test("the container build is driven by the answers, not by an assumed layout", {
