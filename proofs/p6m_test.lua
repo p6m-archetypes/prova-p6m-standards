@@ -194,6 +194,25 @@ prova.describe("s10 ci parity", function()
 		t:expect(rust, "format-check, lint, test, build — rust-build@v1's default order")
 			:matches("RUN cargo fmt %-%- %-%-check\nRUN cargo clippy %-%- %-D warnings\nRUN cargo test\nRUN cargo build\n")
 	end)
+
+	prova.test("an action ref's existence is judged by the host, both ways", {
+		covers = "docs/standards.md#rendered-actions-resolve",
+		proves = "the judgment must be able to say NO: promote.yaml shipped fleet-wide against"
+			.. " p6m-actions/release-promote-to-environment@v1 while that repo had zero tags"
+			.. " (2026-09-03), and a check that cannot refute a ref would have stayed green through"
+			.. " it. The very ref that was missing is the positive case now — it exists because the"
+			.. " incident forced its release",
+	}, function(t)
+		if not p6m.ci.actions_host_reachable() then
+			t:skip("github.com is unreachable from this environment")
+		end
+		t:expect(p6m.ci.action_ref_resolves("p6m-actions/release-promote-to-environment", "v1"),
+			"the once-missing tag resolves today"):is_true()
+		t:expect(p6m.ci.action_ref_resolves("p6m-actions/release-promote-to-environment", "v999"),
+			"a tag that does not exist is refused"):is_false()
+		t:expect(p6m.ci.action_ref_resolves("p6m-actions/this-repo-does-not-exist", "v1"),
+			"a repo that does not exist is refused"):is_false()
+	end)
 end)
 
 prova.describe("env contract", function()

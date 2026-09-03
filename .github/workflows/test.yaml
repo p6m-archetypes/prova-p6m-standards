@@ -22,6 +22,8 @@ jobs:
         # breaking. The pin said "per E7" while E7 forbids it, and it froze this suite on v0.16.1
         # after [requires] moved to >= 0.19, so every dev run failed before a single proof ran. The
         # engine version belongs in run-action, which is bumped with each prova release.
+        # NOTE rendered-actions-resolve probes github.com deliberately UNAUTHENTICATED — the
+        # consumer of record is a customer-org runner with no p6m credentials, so no token here.
 
       # prova is now on PATH — check the plugin conforms to the namespacing grammar.
       - name: Lint the plugin
