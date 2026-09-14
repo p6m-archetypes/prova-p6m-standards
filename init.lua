@@ -1273,6 +1273,19 @@ function p6m.empty.standards.cicd(g, project, s, opts)
     t:expect(dispatch["with"]["image-name"], "image-name"):equals("${{ env.IMAGE_NAME }}")
   end)
 
+  g:test("the publish step builds only platforms the org deploys", {
+    covers = "docs/standards.md#image-platforms-deployable",
+    proves = "DECIDED 2026-09-14: platforms: linux/amd64 — the arm64 half was QEMU-emulated on an"
+      .. " amd64 runner (Node segfaults under qemu; cargo ran 25 minutes) while every dev node is"
+      .. " amd64, so the artifact breaking the build had zero consumers. Multi-arch returns only"
+      .. " via a native-runner matrix (p6m-workflows/build-deploy-docker, YP6M-3780), never"
+      .. " emulation",
+  }, function(t)
+    local publish = step_using(workflow(t).jobs.build.steps, "docker%-buildx%-build%-publish")
+    t:expect(publish, "a docker-buildx-build-publish step"):never():is_nil()
+    t:expect(publish["with"]["platforms"], "platforms"):equals("linux/amd64")
+  end)
+
   g:test("a manual release is the same pipeline at a chosen version level", {
     covers = "docs/standards.md#cut-tags-are-promotable",
     proves = "DECIDED 2026-09-03: the version level is an INPUT of the one pipeline, not a second"
