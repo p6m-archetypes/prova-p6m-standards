@@ -18,7 +18,7 @@
 ---@field entity_snake string  # "user_details"
 ---@field EntityName string    # "UserDetails"
 ---@field entityName string    # "userDetails"
----@field solution string?     # "acme-platform" (when a solution is given)
+---@field organization string? # "acme-platform" — the GitHub organization (when one is given)
 --- Retiring aliases of the fields above (YP6M-3424) — kept while the hand-rolled suites convert
 --- onto the shape harnesses. Same values, one derivation; do not author against them.
 ---@field PrefixName string    # deprecated → EntityName
@@ -27,7 +27,8 @@
 ---@field prefix_name string   # deprecated → entity_snake
 ---@field PascalFull string    # deprecated → ProjectName
 ---@field snake_full string    # deprecated → project_snake
----@field org_solution string? # deprecated → solution
+---@field solution string?     # deprecated → organization (YP6M-3798)
+---@field org_solution string? # deprecated → organization
 
 ---@class p6m.GrpcSurface
 ---@field package string      # flat "{project_snake}"
@@ -59,7 +60,7 @@ local p6m = {}
 --- derives nothing — p6m-identity-library owns the one rule that defaults an entity off a project
 --- name, and two implementations of it would drift. `entity` omitted means the shape has no domain
 --- entity (overlay, basic), not "guess". Accepts any input shape ("User Details", "user-details").
----@param spec { project: string, entity: string?, solution: string? }
+---@param spec { project: string, entity: string?, organization: string?, solution: string? }
 ---@return p6m.Identity
 function p6m.identity(spec) end
 
@@ -116,7 +117,8 @@ function p6m.ci.dockerfile(stack, opts) end
 ---@field application string        # kebab: the image name, PlatformApplication name, CD directory
 ---@field application_snake string
 ---@field ApplicationName string
----@field solution string           # kebab solution slug — the namespace prefix
+---@field organization string       # kebab GitHub organization — the namespace prefix
+---@field solution string           # deprecated → organization (YP6M-3798)
 ---@field registry string
 ---@field protocol string           # "REST" | "gRPC" | "GraphQL"
 ---@field service_port integer
@@ -128,7 +130,7 @@ function p6m.ci.dockerfile(stack, opts) end
 ---@field extras string[]           # paths beyond the common layer this archetype declares
 ---@field port_env_key string       # "SERVER_PORT" | "GRPC_PORT"
 ---@field port_protocol string      # "http" | "grpc"
----@field image_repository string   # "{registry}/{solution}/{application}"
+---@field image_repository string   # "{registry}/{organization}/{application}"
 ---@field image string              # …":latest"
 ---@field required_answers table<string,any> # the three facts with no sane default (E2)
 ---@field answers table<string,any>          # required + the defaulted selections a variant exercises
@@ -148,14 +150,14 @@ p6m.empty.ENVIRONMENTS = {}
 
 --- E1: the overlay answer key and everything derived from it. `application` is the only name asked;
 --- accepts any input shape. No prefix/suffix, no org × solution split, no author identity.
----@param o { language: string, application: string, solution: string, registry: string,
+---@param o { language: string, application: string, organization: string, registry: string,
 ---           protocol: string?, service_port: integer?, management_port: integer?,
 ---           persistence: string?, cache: string?, messaging: string?, messaging_access: string?,
 ---           extras: string[]? }
 ---@return p6m.OverlaySpec
 function p6m.empty.spec(o) end
 
---- `{solution}-{application}-{env}` — the namespace the platform reads solution + env back out of.
+--- `{organization}-{application}-{env}` — the namespace the platform reads organization + env back out of.
 ---@param s p6m.OverlaySpec
 ---@param env string
 ---@return string

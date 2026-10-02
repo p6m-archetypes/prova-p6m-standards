@@ -28,7 +28,7 @@ end)
 
 prova.describe("identity: multi-word (user-details-service)", function()
 	local id = p6m.identity{ project = "user-details-service", entity = "user-details",
-		solution = "acme-platform" }
+		organization = "acme-platform" }
 
 	prova.test("cases both names, and keeps them separate", {
 		covers = "docs/standards.md#simplified-identity",
@@ -40,7 +40,7 @@ prova.describe("identity: multi-word (user-details-service)", function()
 		t:expect(id.entity_snake):equals("user_details")
 		t:expect(id.EntityName):equals("UserDetails")
 		t:expect(id.entityName):equals("userDetails")
-		t:expect(id.solution):equals("acme-platform")
+		t:expect(id.organization):equals("acme-platform")
 	end)
 
 	prova.test("tolerates every input shape", function(t)
@@ -79,7 +79,22 @@ prova.describe("identity: multi-word (user-details-service)", function()
 		t:expect(id.prefix_name):equals(id.entity_snake)
 		t:expect(id.PascalFull):equals(id.ProjectName)
 		t:expect(id.snake_full):equals(id.project_snake)
-		t:expect(id.org_solution):equals(id.solution)
+		t:expect(id.solution):equals(id.organization)
+		t:expect(id.org_solution):equals(id.organization)
+	end)
+end)
+
+prova.describe("identity: the retiring `solution` input (YP6M-3798)", function()
+	prova.test("is the same value as `organization`", {
+		proves = "un-migrated hand-rolled suites still pass `solution =`; until they move, the oracle "
+			.. "must read it as the organization rather than drop it",
+	}, function(t)
+		local id = p6m.identity{ project = "billing-service", solution = "Acme Platform" }
+		t:expect(id.organization):equals("acme-platform")
+		local s = p6m.empty.spec{ language = "rust", application = "x", solution = "acme", registry = "r" }
+		t:expect(s.organization):equals("acme")
+		t:expect(p6m.spec{ language = "rust", shape = "basic", project = "x", solution = "acme" }
+			.answers.organization_name):equals("acme")
 	end)
 end)
 
@@ -240,7 +255,7 @@ prova.describe("overlay spec: multi-word application (Example Service)", functio
 	local s = p6m.empty.spec{
 		language = "rust",
 		application = "Example Service",
-		solution = "Acme Platform",
+		organization = "Acme Platform",
 		registry = "ghcr.io/acme",
 		persistence = "PostgreSQL",
 		extras = { "Tiltfile" },
@@ -250,12 +265,13 @@ prova.describe("overlay spec: multi-word application (Example Service)", functio
 		t:expect(s.application):equals("example-service")
 		t:expect(s.application_snake):equals("example_service")
 		t:expect(s.ApplicationName):equals("ExampleService")
-		t:expect(s.solution):equals("acme-platform")
+		t:expect(s.organization):equals("acme-platform")
+		t:expect(s.solution, "retiring alias"):equals(s.organization)
 		t:expect(s.image_repository):equals("ghcr.io/acme/acme-platform/example-service")
 		t:expect(s.image):equals("ghcr.io/acme/acme-platform/example-service:latest")
 	end)
 
-	prova.test("namespaces every environment {solution}-{application}-{env}", function(t)
+	prova.test("namespaces every environment {organization}-{application}-{env}", function(t)
 		t:expect(p6m.empty.namespace(s, "dev")):equals("acme-platform-example-service-dev")
 		t:expect(p6m.empty.namespace(s, "stg")):equals("acme-platform-example-service-stg")
 		t:expect(p6m.empty.namespace(s, "prd")):equals("acme-platform-example-service-prd")
@@ -263,7 +279,7 @@ prova.describe("overlay spec: multi-word application (Example Service)", functio
 
 	prova.test("tolerates every input shape for the application name", function(t)
 		for _, shape in ipairs({ "Example Service", "example-service", "example_service", "ExampleService" }) do
-			local v = p6m.empty.spec{ language = "rust", application = shape, solution = "acme", registry = "r" }
+			local v = p6m.empty.spec{ language = "rust", application = shape, organization = "acme", registry = "r" }
 			t:expect(v.application, shape):equals("example-service")
 		end
 	end)
@@ -274,19 +290,17 @@ prova.describe("overlay spec: multi-word application (Example Service)", functio
 			keys[#keys + 1] = k
 		end
 		table.sort(keys)
-		-- `solution_name` since YP6M-3424: the slug is asked for by its own name across every shape,
-		-- where it used to arrive as `org_solution_name` — a name for a decomposition the fleet no
-		-- longer has. The archetypes still SET the old key as a transitional alias for the manifests
-		-- library and their Tiltfiles; nothing ASKS for it.
-		t:expect(table.concat(keys, ",")):equals("image_registry,project_name,solution_name")
+		-- `organization_name` since YP6M-3798: the GitHub organization is asked for by what it is.
+		-- It arrived as `org_solution_name` before YP6M-3424 and as `solution_name` after; the identity
+		-- library still SETS both as transitional aliases for pinned templates. Nothing ASKS for them.
+		t:expect(table.concat(keys, ",")):equals("image_registry,organization_name,project_name")
 	end)
 
 	prova.test("E2: the answer key names no identity opinion", function(t)
-		-- `solution_name` is NOT on this list any more: it names the solution slug now, which is a
-		-- deployment fact the namespace is built from, not the identity opinion it used to be as half
-		-- of an org x solution split.
+		-- `organization_name` is NOT on this list: it is the GitHub organization, a deployment fact the
+		-- namespace and image path are built from. The retired spellings of it ARE on the list.
 		for _, forbidden in ipairs({
-			"author_name", "author_email", "org_name", "org_solution_name",
+			"author_name", "author_email", "org_name", "org_solution_name", "solution_name",
 			"prefix_name", "suffix_name", "entity_name", "debug_port",
 		}) do
 			t:expect(s.answers[forbidden], forbidden .. " must not be asked"):is_nil()
@@ -316,7 +330,7 @@ end)
 prova.describe("overlay spec: the transport decides the env contract", function()
 	local function spec(protocol)
 		return p6m.empty.spec{
-			language = "golang", application = "billing", solution = "acme",
+			language = "golang", application = "billing", organization = "acme",
 			registry = "r", protocol = protocol,
 		}
 	end
@@ -346,7 +360,7 @@ end)
 
 prova.describe("overlay spec: resourceRequirements", function()
 	local function reqs(o)
-		o.language, o.application, o.solution, o.registry = "java", "billing", "acme", "r"
+		o.language, o.application, o.organization, o.registry = "java", "billing", "acme", "r"
 		return p6m.empty.resource_requirements(p6m.empty.spec(o))
 	end
 
@@ -432,7 +446,7 @@ prova.describe("service spec: full shape", function()
 	local s = p6m.spec{
 		language = "java", shape = "full", transport = "rest",
 		project = "user-details-service", entity = "user-details",
-		solution = "acme-platform", persistence = "PostgreSQL",
+		organization = "acme-platform", persistence = "PostgreSQL",
 	}
 
 	prova.test("the identity and the render answers are the same two names", {
@@ -442,7 +456,7 @@ prova.describe("service spec: full shape", function()
 	}, function(t)
 		t:expect(s.answers.project_name):equals(s.id.project_name)
 		t:expect(s.answers.entity_name):equals(s.id.entity_name)
-		t:expect(s.answers.solution_name):equals(s.id.solution)
+		t:expect(s.answers.organization_name):equals(s.id.organization)
 	end)
 
 	prova.test("the persistence table is name-derived, stated once", {
@@ -460,7 +474,7 @@ prova.describe("service spec: full shape", function()
 			.. "properties. Stated once here so a seventh language cannot invent a third convention",
 	}, function(t)
 		local net = p6m.spec{ language = "dotnet", shape = "full", transport = "grpc",
-			project = "user-details-service", entity = "user-details", solution = "acme" }
+			project = "user-details-service", entity = "user-details", organization = "acme" }
 		t:expect(net.table_name):equals("UserDetailss")
 		t:expect(net.display_name_column):equals("DisplayName")
 		-- and the API surface is untouched by it
@@ -472,7 +486,7 @@ prova.describe("service spec: full shape", function()
 	}, function(t)
 		t:expect(s.required_answers.project_name):equals("user-details-service")
 		t:expect(s.required_answers.entity_name):equals("user-details")
-		t:expect(s.required_answers.solution_name):equals("acme-platform")
+		t:expect(s.required_answers.organization_name):equals("acme-platform")
 		-- Not an identity fact, but still REQUIRED: nothing in the composition defaults a registry
 		-- hostname, so a defaults=false render demands it. Discovered by running the E2 check against
 		-- java-rest for the first time — the bar corrected the spec, not the other way round.
@@ -482,7 +496,7 @@ prova.describe("service spec: full shape", function()
 	prova.test("language answers join the key, and are required unless declared otherwise", function(t)
 		local j = p6m.spec{
 			language = "java", shape = "full", transport = "grpc",
-			project = "billing-service", entity = "billing", solution = "acme",
+			project = "billing-service", entity = "billing", organization = "acme",
 			answers = { group_id = "acme.platform", artifactory_host = "acme.jfrog.io" },
 		}
 		t:expect(j.answers.group_id):equals("acme.platform")
@@ -490,7 +504,7 @@ prova.describe("service spec: full shape", function()
 
 		local g = p6m.spec{
 			language = "golang", shape = "full", transport = "rest",
-			project = "billing-service", solution = "acme",
+			project = "billing-service", organization = "acme",
 			answers = { module_path = "github.com/acme/billing-service" },
 			required = {},
 		}
@@ -502,7 +516,7 @@ end)
 prova.describe("service spec: basic shape", function()
 	local s = p6m.spec{
 		language = "rust", shape = "basic",
-		project = "billing-service", solution = "acme-platform",
+		project = "billing-service", organization = "acme-platform",
 	}
 
 	prova.test("a shape with no domain has no entity, and says so", {
@@ -518,7 +532,7 @@ prova.describe("service spec: basic shape", function()
 
 	prova.test("a full shape must name its transport; a basic one must not need to", function(t)
 		local ok = pcall(p6m.spec, {
-			language = "java", shape = "full", project = "billing-service", solution = "acme",
+			language = "java", shape = "full", project = "billing-service", organization = "acme",
 		})
 		t:expect(ok, "full without a transport is rejected"):is_false()
 		t:expect(s.transport, "basic has none"):is_nil()
