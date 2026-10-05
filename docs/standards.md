@@ -60,7 +60,7 @@ One answer set drives every rendering, and it names **two things, not four**:
 |---|---|
 | `project_name` | the repository and project directory, the container image, the `PlatformApplication`, the Tilt resource, `OTEL_SERVICE_NAME`, and the gRPC service name |
 | `entity_name` | the CRUD subject the generated API exposes — **defaulted** from `project_name`, and a real answer |
-| `solution_name` | the namespace prefix; the platform operator reads solution and environment back out of `{solution}-{application}-{env}` |
+| `organization_name` | the GitHub organization; the namespace prefix — the platform operator reads organization and environment back out of `{organization}-{application}-{env}` |
 
 plus ports and resource selections. From each name the casing set is fixed — PascalCase
 (`UserDetailsService`), snake (`user_details_service`), kebab (`user-details-service`) — and the
@@ -90,6 +90,12 @@ their combination), `prefix_name` × `suffix_name`, and author identity (`author
 `author_email` reached four files fleet-wide, and archetect pre-answers them from `~/.gitconfig`).
 `p6m.identity` rejects `prefix`/`suffix` with the migration in the error message rather than
 returning a nil that surfaces as an empty class name three layers downstream.
+
+**Renamed (YP6M-3798):** `solution_name` → `organization_name`. The value always was the GitHub
+organization (`github_owner` is derived from it). `p6m-identity` still accepts a supplied
+`solution_name` answer and sets `solution_name` / `org_solution_name` as transitional aliases;
+`p6m.identity` and the spec builders still accept `solution =` as the retiring spelling of
+`organization =`.
 
 Conventions are not lost by asking less. Archetect resolves answers `config → -A files → -a
 flags` and an answered key suppresses its prompt entirely, so an org convention supplied by
@@ -386,11 +392,11 @@ seams.
 The overlay asks for **deployment facts, not identity opinions**. The application name is the
 only name it asks: it is simultaneously the container image name, the `PlatformApplication`
 name, the CD manifest directory (`directory-name`), and the Tilt resource. From it and the
-solution slug everything else is derived:
+GitHub organization everything else is derived:
 
-- image repository — `{registry}/{solution}/{application}`
-- namespace, per environment — `{solution}-{application}-{env}` (the platform operator derives
-  solution + environment back out of this, which is what lets `Shared` resources be shared)
+- image repository — `{registry}/{organization}/{application}`
+- namespace, per environment — `{organization}-{application}-{env}` (the platform operator derives
+  organization + environment back out of this, which is what lets `Shared` resources be shared)
 - repo name / GitHub owner for the optional SCM step
 
 There is deliberately **no** `prefix_name`/`suffix_name` decomposition, no `org_name` ×
@@ -409,7 +415,7 @@ The tactical key, in full — three facts with no sane default, plus defaulted s
 | Answer | Consumed by |
 |---|---|
 | `project_name` (the application/image name) | workflow `IMAGE_NAME`/`APPLICATION_NAME`, manifest name + namespace + labels, image path, Tiltfile |
-| `org_solution_name` (the solution slug) | image path, `{solution}-{app}-{env}` namespaces |
+| `organization_name` (the GitHub organization) | image path, `{organization}-{app}-{env}` namespaces |
 | `image_registry` | image path |
 | `protocol` (default REST) | `SERVER_PORT` vs `GRPC_PORT`, the manifest's port protocol |
 | `service_port`, `management_port` | manifest ports + config, `EXPOSE`, readiness probe |
@@ -487,7 +493,7 @@ asserted **across** artifacts, not within one:
   actually produced
 - the manifest-dispatch step's `directory-name` == the application name (this is the path CD
   writes into in the manifests repo)
-- `PlatformApplication.spec.deployment.image` == `{registry}/{solution}/{application}:latest`
+- `PlatformApplication.spec.deployment.image` == `{registry}/{organization}/{application}:latest`
 - the dev overlay's kustomize image rename targets that same repository
 - `promote.yaml` (added 2026-08-31) dispatches over the manual promotion environments — stg and
   prd, dev being automatic on merge — and its `release-promote-to-environment` step promotes the
@@ -524,7 +530,7 @@ consumer re-declare them.
 `GRPC_PORT`) at the service port, `MANAGEMENT_PORT`, `LOGGING_STRUCTURED: "true"`, a readiness
 probe on the management port, both ports declared with the right protocol, and
 `resourceRequirements` exactly matching the selected persistence/cache/messaging. Every
-environment overlay parses and namespaces `{solution}-{application}-{env}`.
+environment overlay parses and namespaces `{organization}-{application}-{env}`.
 
 ### E7 — Suite and CI hygiene
 As S9, for these repos: `[run] proofs = [...]`, the `p6m` plugin declared and pinned to a
@@ -547,9 +553,9 @@ pure function of the answer key, never of the language:
 ```lua
 local p6m = require("p6m")
 
-local id = p6m.identity{ prefix = "User Details", suffix = "Service",
-                         org = "acme", solution = "platform" }
--- id.PrefixName == "UserDetails", id.project_name == "user-details-service", ...
+local id = p6m.identity{ project = "user-details-service", entity = "user-details",
+                         organization = "acme-platform" }
+-- id.EntityName == "UserDetails", id.project_name == "user-details-service", ...
 
 local sut = p6m.sut{ dir = rendered.path, transport = "grpc", id = id,
                      db = postgres.container(ctx) }   -- docker.build .platform/docker/local,
@@ -577,7 +583,7 @@ p6m.standards.runtime(t, sut, id)  -- S3-S7: env honored, logs, health, metrics,
 local p6m = require("p6m")
 
 local overlay = p6m.empty.spec{
-  language = "rust", application = "Example Service", solution = "acme-platform",
+  language = "rust", application = "Example Service", organization = "acme-platform",
   registry = "ghcr.io/acme", persistence = "PostgreSQL", extras = { "Tiltfile" },
 }
 local project = p6m.empty.render(overlay)

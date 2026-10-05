@@ -69,7 +69,7 @@ end
 --- Casing is archetect's own inflection engine by way of `prova.str`, so a name cased here and a
 --- name cased by a template agree by construction.
 ---
----@param spec { project: string, entity: string?, solution: string? }
+---@param spec { project: string, entity: string?, organization: string?, solution: string? }
 function p6m.identity(spec)
   assert(type(spec) == "table" and spec.project,
     "p6m.identity requires { project = ... } — the project name the archetype was answered with")
@@ -108,8 +108,10 @@ function p6m.identity(spec)
     entityName = camel(ent),
   }
 
-  if spec.solution then
-    id.solution = joined(tokens(spec.solution), "-")
+  -- The GitHub organization (YP6M-3798). `solution` is the retiring spelling of the same input.
+  local organization = spec.organization or spec.solution
+  if organization then
+    id.organization = joined(tokens(organization), "-")
   end
 
   -- ── Retiring vocabulary (YP6M-3424) ───────────────────────────────────────────────────────────
@@ -122,7 +124,8 @@ function p6m.identity(spec)
   id.prefix_name = id.entity_snake
   id.PascalFull  = id.ProjectName
   id.snake_full  = id.project_snake
-  id.org_solution = id.solution
+  id.solution = id.organization
+  id.org_solution = id.organization
 
   return id
 end
@@ -674,7 +677,7 @@ end
 --- is automatic here: `s.answers` and `s.id` are built from the one input.
 ---
 ---@param o { language: string, shape: string?, transport: string?,
----           project: string, entity: string?, solution: string, registry: string?,
+---           project: string, entity: string?, organization: string, registry: string?,
 ---           persistence: string?, cache: string?, messaging: string?, messaging_access: string?,
 ---           answers: table?, extras: string[]? }
 function p6m.spec(o)
@@ -698,7 +701,8 @@ function p6m.spec(o)
     language = language,
     shape = shape,
     transport = transport,
-    id = p6m.identity{ project = o.project, entity = entity, solution = o.solution },
+    id = p6m.identity{ project = o.project, entity = entity,
+                       organization = o.organization or o.solution },
     registry = o.registry or "ghcr.io/acme",
     persistence = o.persistence or "None",
     cache = o.cache or "None",
@@ -739,14 +743,14 @@ function p6m.spec(o)
   -- E2 check surfaced that the first time it ran against a real archetype — which is what it is for.
   s.required_answers = {
     project_name = s.id.project_name,
-    solution_name = s.id.solution,
+    organization_name = s.id.organization,
     image_registry = s.registry,
   }
   if entity then s.required_answers.entity_name = s.id.entity_name end
 
   s.answers = {
     project_name = s.id.project_name,
-    solution_name = s.id.solution,
+    organization_name = s.id.organization,
     image_registry = s.registry,
     service_port = s.service_port,
     management_port = s.management_port,
@@ -863,12 +867,12 @@ end
 
 --- E1: the overlay answer key and everything derived from it. `application` is the ONLY name asked
 --- — it is at once the image name, the PlatformApplication name, the CD manifest directory and the
---- Tilt resource; `solution` is the namespace prefix the platform operator reads the solution back
---- out of. Accepts any input shape ("Example Service", "example-service", "ExampleService").
+--- Tilt resource; `organization` (the GitHub organization) is the namespace prefix the platform
+--- operator reads the organization back out of. Accepts any input shape ("Example Service", "example-service", "ExampleService").
 ---
 --- Deliberately NOT here: prefix/suffix decomposition, org × solution split, author identity — a
 --- service archetype needs those to name code it generates, and an overlay generates none.
----@param o { language: string, application: string, solution: string, registry: string,
+---@param o { language: string, application: string, organization: string, registry: string,
 ---           protocol: string?, service_port: integer?, management_port: integer?,
 ---           persistence: string?, cache: string?, messaging: string?, messaging_access: string?,
 ---           extras: string[]? }
@@ -883,7 +887,8 @@ function p6m.empty.spec(o)
     application = joined(app, "-"),
     application_snake = joined(app, "_"),
     ApplicationName = pascal(app),
-    solution = joined(tokens(assert(o.solution, "p6m.empty.spec requires { solution = ... }")), "-"),
+    organization = joined(tokens(assert(o.organization or o.solution,
+      "p6m.empty.spec requires { organization = ... }")), "-"),
     registry = assert(o.registry, "p6m.empty.spec requires { registry = ... }"),
     protocol = protocol,
     service_port = service_port,
@@ -903,21 +908,24 @@ function p6m.empty.spec(o)
   -- S3's contract, as the manifest must inject it for this transport
   s.port_env_key = protocol == "gRPC" and "GRPC_PORT" or "SERVER_PORT"
   s.port_protocol = protocol == "gRPC" and "grpc" or "http"
-  s.image_repository = s.registry .. "/" .. s.solution .. "/" .. s.application
+  -- Retiring spelling of `organization` (YP6M-3798); same value, do not author against it.
+  s.solution = s.organization
+
+  s.image_repository = s.registry .. "/" .. s.organization .. "/" .. s.application
   s.image = s.image_repository .. ":latest"
 
   -- E2: the three facts with no sane default. Rendering with ONLY these and no defaults fallback
   -- must succeed — that is the whole prompt-surface proof.
   s.required_answers = {
     project_name = s.application,
-    solution_name = s.solution,
+    organization_name = s.organization,
     image_registry = s.registry,
   }
 
   -- The full key: the required facts plus the defaulted selections a variant exercises.
   s.answers = {
     project_name = s.application,
-    solution_name = s.solution,
+    organization_name = s.organization,
     image_registry = s.registry,
     protocol = s.protocol,
     service_port = s.service_port,
@@ -943,10 +951,11 @@ function p6m.empty.spec(o)
   return s
 end
 
---- The namespace the manifests place the application in for an environment: `{solution}-{app}-{env}`
---- (E1 — the convention the platform operator derives solution + environment back out of).
+--- The namespace the manifests place the application in for an environment:
+--- `{organization}-{app}-{env}` (E1 — the convention the platform operator derives organization +
+--- environment back out of).
 function p6m.empty.namespace(s, env)
-  return s.solution .. "-" .. s.application .. "-" .. env
+  return s.organization .. "-" .. s.application .. "-" .. env
 end
 
 --- The resourceRequirements the selected resources must produce, in manifest order (E6). Keyed by
@@ -1176,7 +1185,7 @@ function p6m.empty.standards.manifests(g, project, s)
     end)
   end)
 
-  g:test("every environment overlay parses and is namespaced {solution}-{app}-{env}", function(t)
+  g:test("every environment overlay parses and is namespaced {organization}-{app}-{env}", function(t)
     local root = t:use(project).path
     t:expect_all(function()
       for _, env in ipairs(p6m.empty.ENVIRONMENTS) do
@@ -1881,7 +1890,7 @@ p6m.SCM_SWITCH = "no-scm"
 --- The libraries the fleet retired, named so the failure says WHY rather than "not in the list".
 p6m.RETIRED_PROMPT_LIBRARIES = {
   ["author"] = "author identity reached four files fleet-wide and archetect pre-answers it from ~/.gitconfig",
-  ["org"] = "org_name x solution_name were two prompts building one string; p6m-identity asks for the solution slug once",
+  ["org"] = "org_name x solution_name were two prompts building one string; p6m-identity asks for the GitHub organization once",
   ["project"] = "prefix_name x suffix_name was one name doing two jobs; p6m-identity asks for the project and the entity separately",
 }
 
