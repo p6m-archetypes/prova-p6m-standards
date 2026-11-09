@@ -1578,6 +1578,176 @@ function p6m.empty.standards.retrofit(g, s, opts)
   end)
 end
 
+-- ── E8: the container build runs, for any application of the language (YP6M-4395) ──────────────
+
+--- The `COPY --from=<stage> /usr/local/…` lines in a Dockerfile: a runtime stage reaching into the
+--- builder's /usr/local only works when the application's build happened to install there. Copying
+--- INTO /usr/local, or from a published image (`--from=ghcr.io/…`), is not flagged — the bar is
+--- about where the BUILD put its output.
+---@param dockerfile string
+---@return string[] offending lines, in order
+function p6m.copies_from_usr_local(dockerfile)
+  local hits = {}
+  for line in (dockerfile .. "\n"):gmatch("([^\n]*)\n") do
+    local from, rest = line:match("^%s*COPY%s+.-%-%-from=(%S+)%s+(.*)$")
+    if from and not from:find("[/:]") then
+      -- strip any further flags (--chown=…, --link) before the first source path
+      local src = rest:gsub("^%-%-%S+%s+", ""):gsub("^%-%-%S+%s+", ""):match("^(%S+)")
+      if src and src:find("^/usr/local/") then
+        hits[#hits + 1] = line
+      end
+    end
+  end
+  return hits
+end
+
+-- The directory this package was loaded from — fixtures ship beside init.lua, so a consumer that
+-- resolved the package from a git tag reads them out of its own cache, not out of its repo.
+local PACKAGE_ROOT = pkg.dir
+
+--- E8's fixture catalog: per overlay language, small EXISTING applications the overlay is rendered
+--- over and whose image must build and boot. Exactly one is default-shaped (answers nothing — the
+--- archetype's own defaults must containerize it); every other is DIVERGENT, laid out and built
+--- the way real retrofit targets are, answering `build_command`/`runtime_artifact` as its team
+--- would. `__APP__` in a fixture file is replaced by the application name at render time.
+p6m.empty.FIXTURES = {
+  python = {
+    { name = "installed", answers = {} },
+    {
+      name = "uv-sync",
+      divergent = "YP6M-4395: a customer retrofit — `uv sync --locked` installs into the project"
+        .. " environment, not /usr/local, and the console script is not named after the app",
+      answers = { build_command = "uv sync --locked --no-dev", runtime_artifact = "fixture-console" },
+    },
+  },
+}
+
+---@param language string
+---@return { name: string, dir: string, divergent: string|nil, answers: table }[]
+function p6m.empty.fixtures(language)
+  local out = {}
+  for _, f in ipairs(p6m.empty.FIXTURES[language] or {}) do
+    out[#out + 1] = {
+      name = f.name,
+      dir = PACKAGE_ROOT .. "/fixtures/overlay/" .. language .. "/" .. f.name,
+      divergent = f.divergent,
+      answers = f.answers,
+    }
+  end
+  return out
+end
+
+-- Seed `dest` with a fixture app, substituting the application name.
+local function seed_fixture(fixture, dest, application)
+  for _, abs in ipairs(fs.glob(fixture.dir, "**/*")) do
+    local ok, contents = pcall(fs.read, abs) -- directories raise; only files are copied
+    if ok then
+      fs.write(dest .. "/" .. abs:sub(#fixture.dir + 2), (contents:gsub("__APP__", application)))
+    end
+  end
+end
+
+-- The overlay rendered over a fixture app: the tactical answers, with the container-build pair
+-- taken from the FIXTURE (nil = the archetype's default) rather than from the variant.
+local function render_over_fixture(t, s, fixture, overrides, opts)
+  local dest = t:tempdir(s.label .. ":e8:" .. fixture.name)
+  seed_fixture(fixture, dest, s.application)
+  local answers = {}
+  for k, v in pairs(s.answers) do
+    answers[k] = v
+  end
+  answers.build_command, answers.runtime_artifact = nil, nil
+  for k, v in pairs(fixture.answers or {}) do
+    answers[k] = v
+  end
+  for k, v in pairs(overrides or {}) do
+    answers[k] = v
+  end
+  archetect.render{ source = (opts and opts.source) or ".", answers = answers, destination = dest }
+  return dest
+end
+
+--- E8: the rendered production image BUILDS and the service STARTS, over a default-shaped and a
+--- divergent application of the overlay's language; the Dockerfile takes nothing from the builder's
+--- /usr/local; and an answer that disagrees with the build fails with a message naming the answer.
+--- A property of the archetype, not of a variant: invoke once, with any variant's spec.
+---@param opts { source: string? }?
+function p6m.empty.standards.container_build(g, project, s, opts)
+  g:test("the runtime stage copies nothing out of the builder's /usr/local", {
+    covers = "docs/standards.md#overlay-container-build",
+    falsified_by = function(t)
+      local df = t:use(project).path .. "/.platform/docker/prd/Dockerfile"
+      fs.write(df, fs.read(df) .. "\nCOPY --from=builder /usr/local/bin/app /usr/local/bin/app\n")
+    end,
+  }, function(t)
+    local root = t:use(project).path
+    t:expect_all(function()
+      for _, kind in ipairs({ "prd", "local" }) do
+        local hits = p6m.copies_from_usr_local(fs.read(root .. "/.platform/docker/" .. kind .. "/Dockerfile"))
+        t:expect(hits, kind .. " Dockerfile copies out of /usr/local"):is_empty()
+      end
+    end)
+  end)
+
+  g:test("local and prd are one build, differing only in their header", {
+    covers = "docs/standards.md#overlay-container-build",
+    proves = "the inner loop must exercise the image CI publishes — a fix that lands in one copy and"
+      .. " not the other is how a Tilt build stays green over a broken deploy",
+  }, function(t)
+    local root = t:use(project).path
+    local function body(kind)
+      return (fs.read(root .. "/.platform/docker/" .. kind .. "/Dockerfile"):gsub("^#[^\n]*\n", ""))
+    end
+    t:expect(body("local")):equals(body("prd"))
+  end)
+
+  local env_port = s.port_env_key
+  for _, fixture in ipairs(p6m.empty.fixtures(s.language)) do
+    g:test("the image builds and the service starts: " .. s.language .. "/" .. fixture.name, {
+      covers = "docs/standards.md#overlay-container-build",
+      requires = { "docker" },
+      proves = fixture.divergent or "the archetype's defaults containerize a default-shaped app",
+    }, function(t)
+      local dest = render_over_fixture(t, s, fixture, nil, opts)
+      local image = docker.build{
+        context = dest,
+        dockerfile = ".platform/docker/prd/Dockerfile",
+        tag = "p6m-e8-" .. s.language .. "-" .. fixture.name .. ":latest",
+      }
+      local c = docker.run{
+        image = image,
+        ports = { s.service_port, s.management_port },
+        env = { [env_port] = tostring(s.service_port), MANAGEMENT_PORT = tostring(s.management_port) },
+      }
+      t:defer(function() c:stop() end)
+      local ok, err = pcall(http.wait_for,
+        "http://127.0.0.1:" .. c:host_port(s.management_port) .. "/health/readiness", { timeout = "60s" })
+      t:expect(ok, "readiness on MANAGEMENT_PORT — " .. tostring(err) .. "\n" .. tostring(c:logs()))
+        :is_true()
+    end)
+  end
+
+  local default = p6m.empty.fixtures(s.language)[1]
+  if default then
+    g:test("a runtime_artifact the build did not produce fails, naming the answer", {
+      covers = "docs/standards.md#overlay-container-build",
+      requires = { "docker" },
+      proves = "AC: no answer can disagree with the Dockerfile in a way that surfaces only as a bare"
+        .. " `COPY … not found` — the stage step names the answer and what the build did produce",
+    }, function(t)
+      local dest = render_over_fixture(t, s, default, { runtime_artifact = "e8-never-built" }, opts)
+      local ok, err = pcall(docker.build, {
+        context = dest,
+        dockerfile = ".platform/docker/prd/Dockerfile",
+        tag = "p6m-e8-" .. s.language .. "-wrong-artifact:latest",
+      })
+      t:expect(ok, "the build fails"):is_false()
+      t:expect(tostring(err), "the failure names the answer"):contains("runtime_artifact")
+      t:expect(tostring(err), "…and its value"):contains("e8-never-built")
+    end)
+  end
+end
+
 --- E7: the archetype repo's own suite and CI hygiene. The released-tag bar is a REMINDER, not a
 --- test (see below), so a fleet iterating the standards on `dev` stays green while the pin owes
 --- attention; `--heed=p6m-pin` (or a profile's `heed = ["p6m-pin"]`) enforces it when the

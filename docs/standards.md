@@ -354,7 +354,7 @@ The main-branch-only path (docker publish, cut-tag, manifest dispatch, real org 
 (`p6m-archetypes/archetype-e2e-tests`), which renders into a real org and watches the real
 workflow. The two tiers meet at this seam and must not duplicate each other.
 
-## 2b. The retrofit overlay archetypes — E1–E7 (2026-07-27)
+## 2b. The retrofit overlay archetypes — E1–E8 (2026-07-27; E8 2026-11-09)
 
 The six `*-service-empty-archetype` repos are a different kind of thing from the eighteen service
 archetypes, and holding them to S1–S10 mostly asks the wrong questions. A **retrofit overlay**
@@ -379,7 +379,7 @@ What replaces them is stricter on the axes that *do* exist. The failure modes of
 not "the service answers the wrong route"; they are "the generator wrote a `pom.xml` into
 someone's Gradle app", "it clobbered the app's `.gitignore`", "it asked the platform team to
 invent an org and a solution before it would emit a workflow", and "the image name in the
-workflow doesn't match the one in the manifest, so CD silently never updates". E1–E7 are those
+workflow doesn't match the one in the manifest, so CD silently never updates". E1–E8 are those
 seams.
 
 ### E1 — One tactical answer, everything else derived
@@ -530,7 +530,8 @@ environment overlay parses and namespaces `{solution}-{application}-{env}`.
 As S9, for these repos: `[run] proofs = [...]`, the `p6m` plugin declared and pinned to a
 released tag, `.last-failed.json` gitignored, `acceptance.yaml` on `prova-rs/run-action@v1`, and
 no language toolchain step in that workflow — an overlay suite renders and inspects, so a
-runner needs nothing but prova.
+runner needs nothing but prova **and a Docker daemon** (E8 builds the rendered image; amended
+2026-11-09, YP6M-4395). Docker is not a language toolchain: the toolchain lives in the image.
 
 **Tracking `run-action@v1` is the rule, not a default to override.** The step carries no local
 `version:`: the engine version lives in the action, which is bumped on every prova release, so
@@ -538,6 +539,31 @@ tracking the tag is what keeps a suite on the engine the fleet runs. A local pin
 looking up to date — measured, these six sat on v0.11.0 across three engine releases while
 `run-action@v1` already served v0.14.0. Held by a proof (v1.10+), which is why S9's contradicting
 line was corrected rather than the workflows.
+
+### E8 — The container build runs, for any application of the language (2026-11-09)
+<!-- claim: overlay-container-build -->
+E1b made the build *answered*; it never made it *run*. Every overlay suite proved only that the
+answers reached the Dockerfile text, so a runtime stage that copied the builder's `/usr/local`
+passed for as long as the default `build_command` happened to install there. The first retrofit
+whose build did not — `uv sync --locked` into the project environment (a customer retrofit,
+YP6M-4395) — failed at `COPY … /usr/local/bin/<app>: not found` on its very first build.
+
+The bar, held by `p6m.empty.standards.container_build`:
+
+- **The image builds and the service starts** over a default-shaped fixture app (answers nothing)
+  and at least one **divergent** fixture per language — laid out and built the way real retrofit
+  targets are — with readiness answered on `MANAGEMENT_PORT`. Fixtures ship in this package under
+  `fixtures/overlay/<language>/`.
+- **The runtime stage copies nothing out of the builder's `/usr/local`**, nor any other path the
+  application's build never promised to write. The Dockerfile — not the build — fixes where output
+  lands (an `ENV`-pinned environment or output directory), and a Dockerfile-owned stage step moves
+  the answered `runtime_artifact` from wherever the build put it into `/out`.
+- **An answer that disagrees with the build fails naming the answer** — the stage step's message
+  carries `runtime_artifact` and its value, never a bare `COPY … not found`.
+- **local and prd are one build**, differing only in their header line.
+
+Docker-gated (`requires = { "docker" }`): a box without a daemon skips the build-and-boot half;
+the overlay CI profiles `must_run` docker so CI never does.
 
 ## 3. The plugin: `prova-p6m-standards` (require name `p6m`)
 
@@ -568,7 +594,7 @@ p6m.standards.runtime(t, sut, id)  -- S3-S7: env honored, logs, health, metrics,
   built on prova's topology network + `docker.build` primitives.
 - `p6m.standards.*` — the shared suites (api, runtime, docker, hygiene) each archetype's thin
   proof file invokes per variant (transport × persistence × name-shape).
-- `p6m.empty.*` — the overlay layer (E1–E7): `p6m.empty.spec{}` is the tactical-answer oracle,
+- `p6m.empty.*` — the overlay layer (E1–E8): `p6m.empty.spec{}` is the tactical-answer oracle,
   `p6m.empty.render` the shared render fixture, and `p6m.empty.standards.*` the suites the six
   `*-service-empty-archetype` repos invoke. Same discipline: expectations are a pure function of
   the answer key, so a language's overlay is held to the identical bar.

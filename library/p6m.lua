@@ -108,7 +108,7 @@ p6m.ci.stacks = {}
 function p6m.ci.dockerfile(stack, opts) end
 
 ------------------------------------------------------------------------------------------
--- p6m.empty — the retrofit overlay archetypes, E1–E7 (docs/standards.md §2b)
+-- p6m.empty — the retrofit overlay archetypes, E1–E8 (docs/standards.md §2b)
 ------------------------------------------------------------------------------------------
 
 ---@class p6m.OverlaySpec
@@ -215,6 +215,26 @@ function p6m.empty.standards.prompt_surface(g, s, opts) end
 ---@param s p6m.OverlaySpec
 ---@param opts { source: string?, legacy: table<string,string>?, hygiene: table<string,string>? }?
 function p6m.empty.standards.retrofit(g, s, opts) end
+
+--- E8: the rendered production image builds and the service starts over a default-shaped and a
+--- divergent fixture app; nothing is copied out of the builder's /usr/local; a runtime_artifact the
+--- build did not produce fails naming the answer; local and prd agree below the header.
+--- A property of the archetype: invoke once, with any variant's spec. Docker-gated.
+---@param g any
+---@param project prova.Fixture
+---@param s p6m.OverlaySpec
+---@param opts { source: string? }?
+function p6m.empty.standards.container_build(g, project, s, opts) end
+
+--- E8's fixture catalog for a language: exactly one default-shaped app, the rest divergent.
+---@param language string
+---@return { name: string, dir: string, divergent: string|nil, answers: table }[]
+function p6m.empty.fixtures(language) end
+
+--- The `COPY --from=<stage> /usr/local/...` lines of a Dockerfile (E8's static bar).
+---@param dockerfile string
+---@return string[]
+function p6m.copies_from_usr_local(dockerfile) end
 
 --- E7: the archetype repo's own suite + CI hygiene. The released-tag bar is a standing REMINDER
 --- (tag `p6m-pin`): DUE while the p6m pin rides a moving ref, silent on a released tag; heed it
