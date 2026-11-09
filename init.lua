@@ -1742,8 +1742,17 @@ function p6m.empty.standards.container_build(g, project, s, opts)
         tag = "p6m-e8-" .. s.language .. "-wrong-artifact:latest",
       })
       t:expect(ok, "the build fails"):is_false()
-      t:expect(tostring(err), "the failure names the answer"):contains("runtime_artifact")
-      t:expect(tostring(err), "…and its value"):contains("e8-never-built")
+      -- Match only what the step PRINTED (BuildKit's `#<step> <secs> …` output lines), never the
+      -- echoed RUN command: the error also quotes the failing command's source text, which names
+      -- the answer whether or not the step ever explains itself.
+      local printed = {}
+      for line in tostring(err):gmatch("[^\n]+") do
+        local out = line:match("^%s*#%d+ %d+%.%d+ (.*)$")
+        if out then printed[#printed + 1] = out end
+      end
+      local said = table.concat(printed, "\n")
+      t:expect(said, "the step printed a message naming the answer"):contains("runtime_artifact")
+      t:expect(said, "…and its value"):contains("e8-never-built")
     end)
   end
 end
