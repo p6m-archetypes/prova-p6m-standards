@@ -611,3 +611,57 @@ prova.describe("layout vocabulary", function()
 		t:expect(p6m.SCM_SWITCH, "the fleet's SCM switch"):equals("no-scm")
 	end)
 end)
+
+-- E8 (YP6M-4395): an overlay's container build must not reach into paths the application's own
+-- build never promised to write. These hold the pure helper the E8 static bar uses, and the
+-- fixture catalog its build-and-boot bar renders over — hermetic, no docker.
+prova.describe("E8: the container build copies only what the build produced", function()
+	prova.test("flags a runtime stage that copies out of the builder's /usr/local", {
+		covers = "docs/standards.md#overlay-container-build",
+	}, function(t)
+		local df = table.concat({
+			"FROM python:3.12-slim AS builder",
+			"RUN uv pip install --system --no-cache .",
+			"FROM python:3.12-slim",
+			"COPY --from=builder /usr/local/lib/python3.12 /usr/local/lib/python3.12",
+			"COPY --from=builder --chown=app:app /usr/local/bin/billing /usr/local/bin/billing",
+		}, "\n")
+		local hits = p6m.copies_from_usr_local(df)
+		t:expect(#hits, "both offending COPY lines"):equals(2)
+		t:expect(hits[1]):contains("/usr/local/lib/python3.12")
+		t:expect(hits[2]):contains("--chown=app:app /usr/local/bin/billing")
+	end)
+
+	prova.test("does not flag a copy INTO /usr/local, or one from a published image", {
+		covers = "docs/standards.md#overlay-container-build",
+		proves = "the bar is about where the BUILD put its output, not where the runtime stage puts"
+			.. " it: installing a staged binary onto PATH, or taking a tool from its own image, is fine",
+	}, function(t)
+		local df = table.concat({
+			"FROM rust:1.89-bookworm AS builder",
+			"COPY --from=ghcr.io/astral-sh/uv:0.8 /uv /usr/local/bin/uv",
+			"FROM debian:bookworm-slim",
+			"COPY --from=builder /out/billing /usr/local/bin/billing",
+		}, "\n")
+		t:expect(#p6m.copies_from_usr_local(df)):equals(0)
+	end)
+
+	prova.test("every overlay language has a default-shaped and a divergent fixture", {
+		covers = "docs/standards.md#overlay-container-build",
+		proves = "AC: a service whose layout differs from the archetype's must build and start —"
+			.. " a catalog with only the default shape would let the /usr/local bug pass again",
+	}, function(t)
+		t:expect_all(function()
+			for _, lang in ipairs({ "python" }) do
+				local fixtures = p6m.empty.fixtures(lang)
+				local default, divergent = 0, 0
+				for _, f in ipairs(fixtures) do
+					t:expect(fs.exists(f.dir), lang .. "/" .. f.name .. " fixture dir"):is_true()
+					if f.divergent then divergent = divergent + 1 else default = default + 1 end
+				end
+				t:expect(default, lang .. " default-shaped fixtures"):equals(1)
+				t:expect(divergent >= 1, lang .. " has a divergent fixture"):is_true()
+			end
+		end)
+	end)
+end)
