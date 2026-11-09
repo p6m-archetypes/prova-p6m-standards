@@ -1603,7 +1603,9 @@ end
 
 -- The directory this package was loaded from — fixtures ship beside init.lua, so a consumer that
 -- resolved the package from a git tag reads them out of its own cache, not out of its repo.
-local PACKAGE_ROOT = pkg.dir
+-- `pkg` is bound only when prova loads this as a package; `prova package lint` loads the bare file
+-- without it, and the self-tests run from the repo root, where "." is the package.
+local PACKAGE_ROOT = (pkg and pkg.dir) or "."
 
 --- E8's fixture catalog: per overlay language, small EXISTING applications the overlay is rendered
 --- over and whose image must build and boot. Exactly one is default-shaped (answers nothing — the
