@@ -832,13 +832,10 @@ p6m.empty.PLATFORM_LAYER = {
   ".platform/kubernetes/base/kustomization.yaml",
   ".platform/kubernetes/dev/application_patch.yaml",
   ".platform/kubernetes/dev/kustomization.yaml",
-  ".platform/kubernetes/dev/namespace.yaml",
   ".platform/kubernetes/stg/application_patch.yaml",
   ".platform/kubernetes/stg/kustomization.yaml",
-  ".platform/kubernetes/stg/namespace.yaml",
   ".platform/kubernetes/prd/application_patch.yaml",
   ".platform/kubernetes/prd/kustomization.yaml",
-  ".platform/kubernetes/prd/namespace.yaml",
 }
 
 --- The environments the manifests overlay, in the order the platform promotes through them.
@@ -1176,16 +1173,17 @@ function p6m.empty.standards.manifests(g, project, s)
     end)
   end)
 
-  g:test("every environment overlay parses and is namespaced {solution}-{app}-{env}", function(t)
+  -- YP6M-3831 (manifests-library v1.1): the platform provisions and targets the
+  -- {solution}-{app}-{env} namespace, so an overlay neither creates nor overrides it.
+  g:test("every environment overlay parses and leaves the namespace to the platform", function(t)
     local root = t:use(project).path
     t:expect_all(function()
       for _, env in ipairs(p6m.empty.ENVIRONMENTS) do
-        local ns = p6m.empty.namespace(s, env)
         local dir = root .. "/.platform/kubernetes/" .. env .. "/"
         local kust = yaml.decode(fs.read(dir .. "kustomization.yaml"))
         t:expect(kust.kind, env .. " kustomization kind"):equals("Kustomization")
-        t:expect(kust.namespace, env .. " kustomization namespace"):equals(ns)
-        t:expect(yaml.decode(fs.read(dir .. "namespace.yaml")).metadata.name, env .. " Namespace"):equals(ns)
+        t:expect(kust.namespace, env .. " kustomization namespace"):is_nil()
+        t:expect(fs.exists(dir .. "namespace.yaml"), env .. " namespace.yaml"):is_false()
       end
     end)
   end)
@@ -1207,6 +1205,12 @@ function p6m.empty.standards.cicd(g, project, s, opts)
 
   -- Named steps are found by the action they use, so a renamed step never silently stops being
   -- checked (which a `name:` lookup would).
+  -- ci-libraries v1.5 (YP6M-3779) split the pipeline: `build` cuts and compiles, `image` builds
+  -- per platform on its native runner, `publish` assembles the manifest, releases and dispatches.
+  local function job_steps(t, name)
+    return (workflow(t).jobs[name] or {}).steps
+  end
+
   local function step_using(steps, pattern)
     for _, step in ipairs(steps or {}) do
       if step.uses and step.uses:find(pattern) then
@@ -1251,10 +1255,10 @@ function p6m.empty.standards.cicd(g, project, s, opts)
       or nil,
   }, function(t)
     local r = t:use(project)
-    local publish = step_using(workflow(t).jobs.build.steps, "docker%-buildx%-build%-publish")
-    t:expect(publish, "a docker-buildx-build-publish step"):never():is_nil()
-    local path = publish["with"]["dockerfile-path"]
-    t:expect(fs.exists(r.path .. "/" .. path), "dockerfile-path " .. path .. " exists"):is_true()
+    local image = step_using(job_steps(t, "image"), "docker/build%-push%-action")
+    t:expect(image, "a docker/build-push-action step in the image job"):never():is_nil()
+    local path = image["with"]["file"]
+    t:expect(fs.exists(r.path .. "/" .. path), "Dockerfile " .. path .. " exists"):is_true()
   end)
 
   g:test("the manifest-dispatch directory is the application name", {
@@ -1264,26 +1268,35 @@ function p6m.empty.standards.cicd(g, project, s, opts)
         .. " the pipeline is green and the deployment never updates"
       or nil,
   }, function(t)
-    local dispatch = step_using(
-      workflow(t).jobs.build.steps, "platform%-application%-manifest%-dispatch"
-    )
+    local dispatch = step_using(job_steps(t, "publish"), "platform%-application%-manifest%-dispatch")
     t:expect(dispatch, "a platform-application-manifest-dispatch step"):never():is_nil()
     -- Both resolve through workflow env, which the sibling test pinned to the application name.
     t:expect(dispatch["with"]["directory-name"], "directory-name"):equals("${{ env.APPLICATION_NAME }}")
     t:expect(dispatch["with"]["image-name"], "image-name"):equals("${{ env.IMAGE_NAME }}")
   end)
 
-  g:test("the publish step builds only platforms the org deploys", {
+  g:test("images build for the org's platforms on native runners, never qemu", {
     covers = "docs/standards.md#image-platforms-deployable",
-    proves = "DECIDED 2026-09-14: platforms: linux/amd64 — the arm64 half was QEMU-emulated on an"
-      .. " amd64 runner (Node segfaults under qemu; cargo ran 25 minutes) while every dev node is"
-      .. " amd64, so the artifact breaking the build had zero consumers. Multi-arch returns only"
-      .. " via a native-runner matrix (p6m-workflows/build-deploy-docker, YP6M-3780), never"
-      .. " emulation",
+    proves = "DECIDED 2026-09-15 (YP6M-3779): the org variable P6M_IMAGE_PLATFORMS picks the"
+      .. " platforms, defaulting to both; each builds on its NATIVE runner. Emulated arm64"
+      .. " segfaulted Node and ran cargo 25 minutes (measured 2026-09-14), so no job may set up"
+      .. " qemu — an org without arm runners sets the variable to linux/amd64",
   }, function(t)
-    local publish = step_using(workflow(t).jobs.build.steps, "docker%-buildx%-build%-publish")
-    t:expect(publish, "a docker-buildx-build-publish step"):never():is_nil()
-    t:expect(publish["with"]["platforms"], "platforms"):equals("linux/amd64")
+    local jobs = workflow(t).jobs
+    local resolve = (jobs.platforms and jobs.platforms.steps or {})[1]
+    t:expect(resolve, "a `platforms` job that resolves the matrix"):never():is_nil()
+    local run = resolve.run or ""
+    local function says(needle, what)
+      t:expect(run:find(needle, 1, true) ~= nil, what):is_true()
+    end
+    t:expect_all(function()
+      says("vars.P6M_IMAGE_PLATFORMS || 'linux/amd64,linux/arm64'", "org variable, both-platform default")
+      says('runner: "ubuntu-24.04-arm"', "arm64 maps to a native arm runner")
+      t:expect(jobs.image and jobs.image["runs-on"], "image job runner"):equals("${{ matrix.runner }}")
+      for name, job in pairs(jobs) do
+        t:expect(step_using(job.steps, "setup%-qemu"), name .. " job sets up qemu"):is_nil()
+      end
+    end)
   end)
 
   g:test("a manual release is the same pipeline at a chosen version level", {
@@ -1365,7 +1378,7 @@ function p6m.empty.standards.cicd(g, project, s, opts)
         .. " tag; a build that renames or drops the artifact leaves every tag it cut unpromotable"
       or nil,
   }, function(t)
-    local release = step_using(workflow(t).jobs.build.steps, "ncipollo/release%-action")
+    local release = step_using(job_steps(t, "publish"), "ncipollo/release%-action")
     t:expect(release, "a release-creating step"):never():is_nil()
     t:expect(release["with"].artifacts, "release artifacts"):equals("digest.txt")
   end)

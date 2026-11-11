@@ -390,7 +390,9 @@ solution slug everything else is derived:
 
 - image repository — `{registry}/{solution}/{application}`
 - namespace, per environment — `{solution}-{application}-{env}` (the platform operator derives
-  solution + environment back out of this, which is what lets `Shared` resources be shared)
+  solution + environment back out of this, which is what lets `Shared` resources be shared).
+  The platform provisions and targets it; the overlay renders no `Namespace` and sets no
+  kustomize `namespace:` (YP6M-3831)
 - repo name / GitHub owner for the optional SCM step
 
 There is deliberately **no** `prefix_name`/`suffix_name` decomposition, no `org_name` ×
@@ -483,7 +485,7 @@ The seam that actually breaks a first deploy is cross-artifact disagreement, so 
 asserted **across** artifacts, not within one:
 
 - `build.yaml`'s `IMAGE_NAME` and `APPLICATION_NAME` == the application name
-- the `docker-buildx-build-publish` step's `dockerfile-path` names a Dockerfile that the render
+- the `image` job's `docker/build-push-action` step's `file` names a Dockerfile that the render
   actually produced
 - the manifest-dispatch step's `directory-name` == the application name (this is the path CD
   writes into in the manifests repo)
@@ -524,7 +526,8 @@ consumer re-declare them.
 `GRPC_PORT`) at the service port, `MANAGEMENT_PORT`, `LOGGING_STRUCTURED: "true"`, a readiness
 probe on the management port, both ports declared with the right protocol, and
 `resourceRequirements` exactly matching the selected persistence/cache/messaging. Every
-environment overlay parses and namespaces `{solution}-{application}-{env}`.
+environment overlay parses and leaves the namespace to the platform: no `namespace.yaml`, no
+kustomize `namespace:` (YP6M-3831).
 
 ### E7 — Suite and CI hygiene
 As S9, for these repos: `[run] proofs = [...]`, the `p6m` plugin declared and pinned to a
@@ -642,4 +645,4 @@ Every action reference a ci-library renders must resolve: promote.yaml shipped f
 The overlay renders a .dockerignore beside its Dockerfiles: both say COPY . ., so a retrofit of a real app drags its working tree into the build context — node_modules for typescript (reported by Maks 2026-09-03 on max-ts-app PR #2), target/ for rust, bin/obj for dotnet, __pycache__/.venv for python, vendor for golang, target for java — plus .git in every language. The greenfield archetypes render one in 18 content trees (S8); the six overlays render none, and E3's PLATFORM_LAYER does not even allow one. The bar: .dockerignore joins the platform layer with per-language entries, and an E-test asserts the ignores cover the language's dependency/build trees and .git.
 
 <!-- claim: image-platforms-deployable recorded=2026-09-14 -->
-The rendered publish step builds ONLY platforms the org deploys. Measured 2026-09-14 (Maks, demo-ts-app / demo-rust-app): the rendered platforms: linux/amd64,linux/arm64 emulated the arm64 half under QEMU on one amd64 runner — Node segfaults under qemu (uncaught target signal 11 in pnpm install; V8's JIT), cargo runs 10-50x slow (cancelled at 25 min) — while every node in the dev cluster is amd64, so the artifact breaking the build had zero consumers. The bar: build.yaml's docker-buildx-build-publish step says platforms: linux/amd64, held at E5. Multi-arch returns ONLY via a native-runner-per-platform matrix (p6m-workflows/build-deploy-docker, YP6M-3780), never emulation. Suite lesson: S10's CI-parity proof pins --platform=linux/amd64, so the emulated half was never exercised by any proof — what a suite cannot honestly build it must not let CI pretend to.
+The rendered publish step builds ONLY platforms the org deploys. Measured 2026-09-14 (Maks, demo-ts-app / demo-rust-app): the rendered platforms: linux/amd64,linux/arm64 emulated the arm64 half under QEMU on one amd64 runner — Node segfaults under qemu (uncaught target signal 11 in pnpm install; V8's JIT), cargo runs 10-50x slow (cancelled at 25 min) — while every node in the dev cluster is amd64, so the artifact breaking the build had zero consumers. The bar (revised 2026-09-15, YP6M-3779, ci-libraries v1.5): build.yaml's platforms job resolves the org variable P6M_IMAGE_PLATFORMS (default linux/amd64,linux/arm64) into a matrix, the image job builds each platform on its NATIVE runner (arm64 on ubuntu-24.04-arm), and no job sets up qemu, held at E5. An org without arm runners sets the variable to linux/amd64. Suite lesson: S10's CI-parity proof pins --platform=linux/amd64, so the emulated half was never exercised by any proof — what a suite cannot honestly build it must not let CI pretend to.
