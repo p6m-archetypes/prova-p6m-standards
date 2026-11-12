@@ -1248,7 +1248,7 @@ function p6m.empty.standards.cicd(g, project, s, opts)
     t:expect(env.APPLICATION_NAME, "APPLICATION_NAME"):equals(s.application)
   end)
 
-  g:test("the workflow's dockerfile-path names a Dockerfile the overlay rendered", {
+  g:test("the image job's build-push file names a Dockerfile the overlay rendered", {
     promises = cd_spec,
     proves = cd_spec == nil
       and "E5: the publish step and the container build are two artifacts; CD dies on the seam"
@@ -1283,15 +1283,23 @@ function p6m.empty.standards.cicd(g, project, s, opts)
       .. " qemu — an org without arm runners sets the variable to linux/amd64",
   }, function(t)
     local jobs = workflow(t).jobs
-    local resolve = (jobs.platforms and jobs.platforms.steps or {})[1]
-    t:expect(resolve, "a `platforms` job that resolves the matrix"):never():is_nil()
+    -- By `id: resolve` (what the job's `matrix` output reads), not position; the run script is
+    -- matched loosely so quoting and spacing changes don't fail the bar.
+    local resolve
+    for _, step in ipairs(jobs.platforms and jobs.platforms.steps or {}) do
+      if step.id == "resolve" then
+        resolve = step
+      end
+    end
+    t:expect(resolve, "a `platforms` job with an `id: resolve` step"):never():is_nil()
     local run = resolve.run or ""
-    local function says(needle, what)
-      t:expect(run:find(needle, 1, true) ~= nil, what):is_true()
+    local function says(pattern, what)
+      t:expect(run:find(pattern) ~= nil, what):is_true()
     end
     t:expect_all(function()
-      says("vars.P6M_IMAGE_PLATFORMS || 'linux/amd64,linux/arm64'", "org variable, both-platform default")
-      says('runner: "ubuntu-24.04-arm"', "arm64 maps to a native arm runner")
+      says("vars%.P6M_IMAGE_PLATFORMS%s*||%s*[\"']linux/amd64,%s*linux/arm64[\"']",
+        "org variable, both-platform default")
+      says("runner[\"']?%s*:%s*[\"']?ubuntu%-24%.04%-arm", "arm64 maps to a native arm runner")
       t:expect(jobs.image and jobs.image["runs-on"], "image job runner"):equals("${{ matrix.runner }}")
       for name, job in pairs(jobs) do
         t:expect(step_using(job.steps, "setup%-qemu"), name .. " job sets up qemu"):is_nil()
